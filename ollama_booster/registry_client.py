@@ -50,13 +50,41 @@ class RegistryClient:
     def parse_model_ref(model_ref: str) -> Tuple[str, str, str, str]:
         """
         Parses full model string into (registry, namespace, model, tag).
-        Examples:
+        Supports:
           'llama3.2' -> ('registry.ollama.ai', 'library', 'llama3.2', 'latest')
           'llama3.2:1b' -> ('registry.ollama.ai', 'library', 'llama3.2', '1b')
-          'myuser/mymodel:7b' -> ('registry.ollama.ai', 'myuser', 'mymodel', '7b')
-          'custom.registry/user/model:tag' -> ('custom.registry', 'user', 'model', 'tag')
+          'hf.co/user/repo:Q4_K_M' -> ('hf.co', 'user', 'repo', 'Q4_K_M')
+          'https://huggingface.co/user/repo' -> ('hf.co', 'user', 'repo', 'latest')
+          'https://huggingface.co/user/repo/blob/main/model-Q4_K_M.gguf' -> ('hf.co', 'user', 'repo', 'Q4_K_M')
         """
+        import re
+
         ref = model_ref.strip()
+
+        # Clean protocol prefixes
+        if ref.startswith("https://"):
+            ref = ref[8:]
+        elif ref.startswith("http://"):
+            ref = ref[7:]
+
+        # Normalize huggingface.co to hf.co
+        if ref.startswith("huggingface.co/"):
+            ref = "hf.co/" + ref[15:]
+
+        # Handle Hugging Face direct browser URLs (tree or blob)
+        if ref.startswith("hf.co/"):
+            parts = ref.split("/")
+            if len(parts) >= 4 and parts[3] in ("tree", "blob"):
+                ns = parts[1]
+                mdl = parts[2]
+                tag = "latest"
+                if len(parts) >= 6 and parts[3] == "blob" and parts[5].endswith(".gguf"):
+                    fname = parts[5][:-5]
+                    m = re.search(r"[-_.]([qQ][0-9]_[A-Za-z0-9_]+|[fF]16|[fF]32|[bB][fF]16)$", fname)
+                    if m:
+                        tag = m.group(1).upper()
+                return "hf.co", ns, mdl, tag
+
         registry = RegistryClient.DEFAULT_REGISTRY
 
         # Check for host prefix (e.g. host:port/ or host.domain/)
@@ -130,14 +158,6 @@ class RegistryClient:
             pass
         if token.strip():
             os.environ["HF_TOKEN"] = token.strip()
-
-
-def get_hf_token() -> Optional[str]:
-    return RegistryClient.get_hf_token()
-
-
-def save_hf_token(token: str) -> None:
-    RegistryClient.save_hf_token(token)
 
     def fetch_manifest(self, model_ref: str) -> Tuple[Dict[str, Any], Tuple[str, str, str, str]]:
         """
@@ -231,3 +251,13 @@ def save_hf_token(token: str) -> None:
             "other_layers": other_layers,
             "config": manifest.get("config", {})
         }
+
+
+def get_hf_token() -> Optional[str]:
+    """Helper module-level function to retrieve Hugging Face token."""
+    return RegistryClient.get_hf_token()
+
+
+def save_hf_token(token: str) -> None:
+    """Helper module-level function to save Hugging Face token."""
+    RegistryClient.save_hf_token(token)

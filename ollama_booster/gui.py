@@ -425,6 +425,51 @@ class BoosterApp(ctk.CTk):
             )
             chip.pack(side="left", padx=3)
 
+        # Hugging Face Presets & Helper Row
+        hf_presets_row = ctk.CTkFrame(ctrl_card, fg_color="transparent")
+        hf_presets_row.pack(fill="x", padx=16, pady=(0, 10))
+
+        ctk.CTkLabel(
+            hf_presets_row,
+            text="🤗 Hugging Face:",
+            font=("Segoe UI", 9, "bold"),
+            text_color="#c4b5fd"
+        ).pack(side="left", padx=(0, 8))
+
+        hf_presets = [
+            ("Llama-3.2-1B-GGUF", "hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M"),
+            ("DeepSeek-R1-1.5B-GGUF", "hf.co/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF:Q4_K_M"),
+            ("Qwen2.5-Coder-1.5B", "hf.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF:Q4_K_M"),
+            ("Spark-X2.6-4B", "hf.co/SC117/Spark-X2.6-4B-abliterated-FIT-GGUF:Q4_K_M")
+        ]
+
+        for label, model_ref in hf_presets:
+            chip = ctk.CTkButton(
+                hf_presets_row,
+                text=label,
+                font=("Segoe UI", 9),
+                height=26,
+                corner_radius=6,
+                fg_color="#231d38",
+                text_color="#c4b5fd",
+                hover_color="#362955",
+                command=lambda m=model_ref: self.model_input_var.set(m)
+            )
+            chip.pack(side="left", padx=3)
+
+        btn_hf_help = ctk.CTkButton(
+            hf_presets_row,
+            text="ℹ️ How to pull any HF model",
+            font=("Segoe UI", 8, "bold"),
+            height=24,
+            corner_radius=6,
+            fg_color=self.COLOR_CARD_ALT,
+            text_color=self.COLOR_CYAN,
+            hover_color=self.COLOR_CARD_HOVER,
+            command=self._show_hf_guide_dialog
+        )
+        btn_hf_help.pack(side="right")
+
         # Concurrency & Acceleration Bar
         concurrency_row = ctk.CTkFrame(ctrl_card, fg_color="transparent")
         concurrency_row.pack(fill="x", padx=16, pady=(0, 14))
@@ -1439,6 +1484,134 @@ class BoosterApp(ctk.CTk):
         self.model_input_var.set(model_name)
         if not self.is_downloading:
             self._start_download()
+
+    def _show_hf_guide_dialog(self):
+        """Opens an informative guide and URL converter for Hugging Face models."""
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("🤗 How to Download Hugging Face Models")
+        dlg.geometry("620x530")
+        dlg.minsize(560, 480)
+        dlg.configure(fg_color=self.COLOR_BG_DARK)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        # Header
+        hdr = ctk.CTkFrame(dlg, fg_color="transparent")
+        hdr.pack(fill="x", padx=20, pady=(18, 10))
+
+        ctk.CTkLabel(
+            hdr,
+            text="🤗 Hugging Face Models Guide",
+            font=("Segoe UI", 15, "bold"),
+            text_color="#c4b5fd"
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            hdr,
+            text="Ollama natively supports downloading GGUF models directly from Hugging Face using the 'hf.co/' prefix.",
+            font=("Segoe UI", 10),
+            text_color=self.COLOR_TEXT_MUTED
+        ).pack(anchor="w", pady=(2, 0))
+
+        # Card 1: Standard Format
+        c1 = ctk.CTkFrame(dlg, fg_color=self.COLOR_CARD, border_width=1, border_color=self.COLOR_BORDER, corner_radius=8)
+        c1.pack(fill="x", padx=20, pady=(0, 10))
+
+        ctk.CTkLabel(c1, text="1. Standard Model Format:", font=("Segoe UI", 10, "bold"), text_color=self.COLOR_TEXT_MAIN).pack(anchor="w", padx=14, pady=(10, 2))
+        fmt_box = ctk.CTkFrame(c1, fg_color=self.COLOR_BG_DARK, corner_radius=6)
+        fmt_box.pack(fill="x", padx=14, pady=(0, 10))
+        ctk.CTkLabel(
+            fmt_box,
+            text="hf.co/{username}/{model-repository}:{quantization_tag}\n\nExamples:\n• hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M\n• hf.co/unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF:Q4_K_M\n• hf.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF:Q4_K_M",
+            font=("Consolas", 10),
+            text_color=self.COLOR_CYAN,
+            justify="left"
+        ).pack(anchor="w", padx=10, pady=8)
+
+        # Card 2: Interactive Smart Converter
+        c2 = ctk.CTkFrame(dlg, fg_color=self.COLOR_CARD, border_width=1, border_color=self.COLOR_BORDER, corner_radius=8)
+        c2.pack(fill="x", padx=20, pady=(0, 10))
+
+        ctk.CTkLabel(c2, text="2. Smart URL Converter (Paste Any Hugging Face Link):", font=("Segoe UI", 10, "bold"), text_color=self.COLOR_TEXT_MAIN).pack(anchor="w", padx=14, pady=(10, 2))
+        
+        convert_row = ctk.CTkFrame(c2, fg_color="transparent")
+        convert_row.pack(fill="x", padx=14, pady=(0, 10))
+
+        paste_var = ctk.StringVar()
+        entry_paste = ctk.CTkEntry(
+            convert_row,
+            textvariable=paste_var,
+            placeholder_text="Paste https://huggingface.co/... here",
+            font=("Consolas", 10),
+            height=34,
+            corner_radius=6,
+            fg_color=self.COLOR_BG_DARK,
+            border_color=self.COLOR_BORDER_LIGHT
+        )
+        entry_paste.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        def on_convert():
+            url = paste_var.get().strip()
+            if not url:
+                return
+            reg, ns, mdl, tag = RegistryClient.parse_model_ref(url)
+            converted = f"{reg}/{ns}/{mdl}:{tag}"
+            self.model_input_var.set(converted)
+            dlg.destroy()
+            self._log_event(f"Loaded Hugging Face reference: '{converted}'")
+            messagebox.showinfo("Loaded", f"Converted and loaded into downloader:\n\n{converted}")
+
+        btn_load = ctk.CTkButton(
+            convert_row,
+            text="Convert & Load",
+            font=("Segoe UI", 9, "bold"),
+            fg_color=self.COLOR_CYAN,
+            hover_color=self.COLOR_CYAN_HOVER,
+            text_color="#000000",
+            height=34,
+            corner_radius=6,
+            command=on_convert
+        )
+        btn_load.pack(side="left")
+
+        # Card 3: Gated Models / Token Notice
+        c3 = ctk.CTkFrame(dlg, fg_color=self.COLOR_CARD, border_width=1, border_color=self.COLOR_BORDER, corner_radius=8)
+        c3.pack(fill="x", padx=20, pady=(0, 14))
+
+        ctk.CTkLabel(c3, text="3. Gated Models (e.g. Meta-Llama, Gemma):", font=("Segoe UI", 10, "bold"), text_color=self.COLOR_TEXT_MAIN).pack(anchor="w", padx=14, pady=(10, 2))
+        ctk.CTkLabel(
+            c3,
+            text="If a model requires license agreement on Hugging Face, accept it on huggingface.co and save your User Access Token in the app's '⚙️ Settings & Proxy' tab to avoid 401 errors.",
+            font=("Segoe UI", 9),
+            text_color=self.COLOR_TEXT_MUTED,
+            wraplength=540,
+            justify="left"
+        ).pack(anchor="w", padx=14, pady=(0, 8))
+
+        btn_settings = ctk.CTkButton(
+            c3,
+            text="⚙️ Open Settings to Add HF Token",
+            font=("Segoe UI", 9),
+            fg_color=self.COLOR_CARD_ALT,
+            hover_color=self.COLOR_CARD_HOVER,
+            text_color=self.COLOR_TEXT_MAIN,
+            height=28,
+            corner_radius=6,
+            command=lambda: (dlg.destroy(), self.switch_view("settings"))
+        )
+        btn_settings.pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Bottom Close Button
+        ctk.CTkButton(
+            dlg,
+            text="Close",
+            font=("Segoe UI", 10),
+            fg_color=self.COLOR_CARD,
+            hover_color=self.COLOR_CARD_HOVER,
+            height=32,
+            width=80,
+            command=dlg.destroy
+        ).pack(side="bottom", pady=(0, 14))
 
     # ---------------- MODELS MANAGER ACTIONS ----------------
 

@@ -32,6 +32,21 @@ class TestRegistryClient(unittest.TestCase):
         self.assertEqual(model, "custom-model")
         self.assertEqual(tag, "v1")
 
+    def test_parse_model_ref_huggingface(self):
+        # Direct hf.co notation
+        reg, ns, model, tag = RegistryClient.parse_model_ref("hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M")
+        self.assertEqual(reg, "hf.co")
+        self.assertEqual(ns, "bartowski")
+        self.assertEqual(model, "Llama-3.2-1B-Instruct-GGUF")
+        self.assertEqual(tag, "Q4_K_M")
+
+        # Full browser https:// URL
+        reg, ns, model, tag = RegistryClient.parse_model_ref("https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/blob/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf")
+        self.assertEqual(reg, "hf.co")
+        self.assertEqual(ns, "bartowski")
+        self.assertEqual(model, "Llama-3.2-1B-Instruct-GGUF")
+        self.assertEqual(tag, "Q4_K_M")
+
 
 if __name__ == "__main__":
     unittest.main()
