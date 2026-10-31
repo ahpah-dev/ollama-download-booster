@@ -137,6 +137,20 @@ Or for larger models like DeepSeek-R1:
 python main.py pull deepseek-r1:7b -c 16
 ```
 
+### 🤗 Run Models Directly from Hugging Face
+Ollama and Ollama Download Booster both natively support running models directly from Hugging Face via the `hf.co` prefix!
+
+You can pull and accelerate any Hugging Face GGUF model:
+```bash
+# Pull and accelerate a Hugging Face GGUF model with 16 parallel streams:
+python main.py pull hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M -c 16
+
+# Run it directly in Ollama:
+ollama run hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M
+```
+
+Or simply enter `hf.co/username/repository:quantization` directly in the Desktop GUI!
+
 ### List Installed Models
 ```bash
 python main.py list

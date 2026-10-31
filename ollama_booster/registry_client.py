@@ -105,19 +105,14 @@ class RegistryClient:
 
     def resolve_blob_download_url(self, registry: str, namespace: str, model: str, digest: str) -> str:
         """
-        Resolves the direct storage URL for a blob (following 307 redirect to Cloudflare R2).
-        By obtaining the direct signed CDN URL, worker threads bypass registry API gateway bottlenecks.
+        Resolves the direct storage URL for a blob (following redirects to Cloudflare R2 / AWS CloudFront).
+        Supports registry.ollama.ai, hf.co (Hugging Face), and custom OCI registries.
         """
-        url = f"https://registry.ollama.ai/v2/{namespace}/{model}/blobs/{digest}"
+        url = f"https://{registry}/v2/{namespace}/{model}/blobs/{digest}"
         try:
-            # We don't follow redirects immediately so we capture the signed direct R2 URL
-            resp = self.session.get(url, allow_redirects=False, timeout=12)
-            if resp.status_code in (301, 302, 307, 308):
-                location = resp.headers.get("Location")
-                if location:
-                    return location
-            elif resp.status_code == 200:
-                return url
+            resp = self.session.get(url, allow_redirects=True, stream=True, timeout=15)
+            if resp.status_code in (200, 206):
+                return resp.url
         except Exception:
             pass
         return url

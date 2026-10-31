@@ -267,11 +267,10 @@ class BoosterApp(tk.Tk):
         presets = [
             ("DeepSeek R1 (7B)", "deepseek-r1:7b"),
             ("Llama 3.2 (3B)", "llama3.2:3b"),
-            ("Llama 3.2 (1B)", "llama3.2:1b"),
             ("Qwen 2.5 (7B)", "qwen2.5:7b"),
             ("Mistral (7B)", "mistral"),
-            ("Phi-4 (14B)", "phi4"),
-            ("SmolLM (135M)", "smollm:135m")
+            ("SmolLM (135M)", "smollm:135m"),
+            ("🤗 HF: Spark 4B", "hf.co/SC117/Spark-X2.6-4B-abliterated-FIT-GGUF:Q4_K_M")
         ]
 
         for label, tag in presets:
@@ -291,6 +290,15 @@ class BoosterApp(tk.Tk):
                 command=lambda t=tag: self._select_preset(t)
             )
             btn.pack(side=tk.LEFT, padx=3)
+
+        # Tip label for Hugging Face support
+        tk.Label(
+            input_card,
+            text="💡 Direct Hugging Face support: Enter 'hf.co/username/repository:quant' to pull GGUFs accelerated.",
+            font=("Segoe UI", 8),
+            fg="#79c0ff",
+            bg=self.COLOR_CARD
+        ).pack(anchor="w", padx=15, pady=(0, 6))
 
         # Concurrency selector row
         concur_row = tk.Frame(input_card, bg=self.COLOR_CARD)
