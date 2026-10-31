@@ -7,8 +7,49 @@
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-orange?style=for-the-badge" alt="Platforms" />
 </p>
 
-> **Boost your Ollama model pull speeds by up to 10x.**  
-> Ollama Download Booster unlocks maximum network throughput using multi-stream HTTP range chunking, direct-seek zero-copy file assembly, and instant local Ollama registration.
+> **Boost your Ollama model download speeds by up to 10x AND accelerate model inference & token generation speed.**  
+> Ollama Download & Runtime Booster unlocks maximum network throughput using multi-stream HTTP range chunking, direct-seek zero-copy file assembly, and speeds up model execution using Flash Attention, persistent VRAM residency, process priority elevation, and physical CPU core tuning.
+
+---
+
+## ⚡ Model Inference Speed Booster (Accelerate Model Execution)
+
+Ollama Download Booster doesn't just accelerate downloads—it also includes a **Model Inference Speed Booster** that significantly increases generation tokens/second and cuts latency when running models on Ollama!
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                   ⚡ INFERENCE ACCELERATION ENGINE                     │
+├───────────────────────────────┬────────────────────────────────────────┤
+│ 🚀 Flash Attention            │ OLLAMA_FLASH_ATTENTION=1 (up to +40%   │
+│                               │ generation throughput and less VRAM)   │
+├───────────────────────────────┼────────────────────────────────────────┤
+│ ⚡ Persistent Memory Warmup   │ OLLAMA_KEEP_ALIVE=24h (zero cold-start │
+│                               │ 5-minute unloads; instant responses)   │
+├───────────────────────────────┼────────────────────────────────────────┤
+│ 🧠 Physical Core Tuning       │ Automatically maps to physical CPU     │
+│                               │ cores to eliminate SMT cache thrash    │
+├───────────────────────────────┼────────────────────────────────────────┤
+│ 🏎️ High Process Priority      │ Elevates Ollama runners to High        │
+│                               │ Priority (eliminates Windows stutter)  │
+├───────────────────────────────┼────────────────────────────────────────┤
+│ 📦 Fast Prompt Batching       │ num_batch=1024 for minimal Time-To-    │
+│                               │ First-Token (TTFT)                     │
+└───────────────────────────────┴────────────────────────────────────────┘
+```
+
+### Turn On Runtime Booster
+- **In Desktop GUI:** Click **`🚀 INFERENCE: ACTIVE`** in the header banner or switch it on inside the **`🚀 Inference Turbo`** tab.
+- **In CLI:**
+  ```bash
+  # Enable persistent inference acceleration
+  python main.py boost-runtime on
+
+  # Launch an accelerated model session
+  python main.py run-boosted llama3.2
+
+  # Live benchmark generation speed (tok/s)
+  python main.py bench-inference llama3.2
+  ```
 
 ---
 

@@ -200,3 +200,9 @@ class OllamaManager:
                         subprocess.Popen([term, "-e", f"ollama run {name}"])
                     return
             subprocess.Popen(["ollama", "run", name])
+
+    def run_model_boosted(self, name: str) -> None:
+        """Launch `ollama run <name>` with Flash Attention, Keep-Alive, and High Priority."""
+        from .runtime_booster import RuntimeBooster
+        rb = RuntimeBooster()
+        rb.launch_boosted_terminal(name)

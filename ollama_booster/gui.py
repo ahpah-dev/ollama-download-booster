@@ -16,6 +16,7 @@ from .models_manager import OllamaManager
 from .registry_client import RegistryClient
 from .booster_engine import BoosterEngine
 from .proxy_server import BoosterProxyServer
+from .runtime_booster import RuntimeBooster
 
 
 class BoosterApp(tk.Tk):
@@ -36,18 +37,23 @@ class BoosterApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Ollama Download Booster ⚡")
-        self.geometry("940x720")
-        self.minsize(840, 640)
+        self.title("Ollama Download & Runtime Booster ⚡")
+        self.geometry("980x760")
+        self.minsize(860, 660)
         self.configure(bg=self.COLOR_BG)
 
         # Business Logic Components
         self.manager = OllamaManager()
         self.engine = BoosterEngine(ollama_manager=self.manager)
         self.proxy_server = BoosterProxyServer(port=11435, manager=self.manager)
+        self.runtime_booster = RuntimeBooster()
 
         # State Variables
-        self.is_boosted = tk.BooleanVar(value=True)  # Booster active by default
+        self.is_boosted = tk.BooleanVar(value=True)  # Download booster active by default
+        self.is_runtime_boosted = tk.BooleanVar(value=self.runtime_booster.is_runtime_boost_enabled())
+        if self.is_runtime_boosted.get():
+            self.runtime_booster.start_process_priority_watcher()
+
         self.concurrency_var = tk.IntVar(value=16)
         self.model_input_var = tk.StringVar(value="llama3.2")
         self.is_downloading = False
@@ -105,12 +111,17 @@ class BoosterApp(tk.Tk):
         notebook.add(tab_models, text="  📦 Models Manager  ")
         self._build_tab_models(tab_models)
 
-        # Tab 3: Speed Benchmark
+        # Tab 3: Inference Turbo (Model Speed Booster)
+        tab_inference = tk.Frame(notebook, bg=self.COLOR_BG)
+        notebook.add(tab_inference, text="  🚀 Inference Turbo  ")
+        self._build_tab_inference(tab_inference)
+
+        # Tab 4: Speed Benchmark
         tab_benchmark = tk.Frame(notebook, bg=self.COLOR_BG)
         notebook.add(tab_benchmark, text="  📊 Speed Benchmark  ")
         self._build_tab_benchmark(tab_benchmark)
 
-        # Tab 4: Booster Proxy & Settings
+        # Tab 5: Booster Proxy & Settings
         tab_settings = tk.Frame(notebook, bg=self.COLOR_BG)
         notebook.add(tab_settings, text="  ⚙️ Settings & Proxy  ")
         self._build_tab_settings(tab_settings)
@@ -119,7 +130,7 @@ class BoosterApp(tk.Tk):
         self._build_status_bar()
 
     def _build_header(self):
-        """Top banner with app branding and big activation toggle."""
+        """Top banner with app branding and dual activation toggles."""
         header_frame = tk.Frame(self, bg=self.COLOR_BG)
         header_frame.pack(fill=tk.X, padx=20, pady=(15, 5))
 
@@ -129,8 +140,8 @@ class BoosterApp(tk.Tk):
 
         lbl_logo = tk.Label(
             title_box,
-            text="⚡ OLLAMA DOWNLOAD BOOSTER",
-            font=("Segoe UI", 16, "bold"),
+            text="⚡ OLLAMA DOWNLOAD & RUNTIME BOOSTER",
+            font=("Segoe UI", 15, "bold"),
             fg=self.COLOR_CYAN,
             bg=self.COLOR_BG
         )
@@ -138,33 +149,53 @@ class BoosterApp(tk.Tk):
 
         lbl_sub = tk.Label(
             title_box,
-            text="Multi-Stream Range Acceleration Engine for Ollama Models",
+            text="Multi-Stream Download Acceleration + Hardware-Tuned Inference Engine",
             font=("Segoe UI", 9),
             fg=self.COLOR_MUTED,
             bg=self.COLOR_BG
         )
         lbl_sub.pack(anchor="w")
 
-        # Big Activation Card on Right
+        # Dual Activation Cluster on Right
+        actions_cluster = tk.Frame(header_frame, bg=self.COLOR_BG)
+        actions_cluster.pack(side=tk.RIGHT)
+
         self.btn_activate = tk.Button(
-            header_frame,
-            text="⚡ BOOSTER: ACTIVE (16x Streams)",
-            font=("Segoe UI", 11, "bold"),
+            actions_cluster,
+            text="⚡ DOWNLOADS: ACTIVE (16x)",
+            font=("Segoe UI", 10, "bold"),
             bg="#1a472a",
             fg=self.COLOR_GREEN_GLOW,
             activebackground=self.COLOR_GREEN,
             activeforeground="#ffffff",
             relief=tk.FLAT,
             bd=0,
-            padx=18,
-            pady=8,
+            padx=14,
+            pady=6,
             cursor="hand2",
             command=self._toggle_booster
         )
-        self.btn_activate.pack(side=tk.RIGHT)
+        self.btn_activate.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.btn_runtime_boost = tk.Button(
+            actions_cluster,
+            text="🚀 INFERENCE: ACTIVE" if self.is_runtime_boosted.get() else "○ INFERENCE: OFF",
+            font=("Segoe UI", 10, "bold"),
+            bg="#1b3a4b" if self.is_runtime_boosted.get() else "#262c36",
+            fg=self.COLOR_CYAN if self.is_runtime_boosted.get() else self.COLOR_MUTED,
+            activebackground="#204b63",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            bd=0,
+            padx=14,
+            pady=6,
+            cursor="hand2",
+            command=self._toggle_runtime_booster
+        )
+        self.btn_runtime_boost.pack(side=tk.LEFT)
 
     def _toggle_booster(self):
-        """Toggle booster state between Active and Standby."""
+        """Toggle download booster state between Active and Standby."""
         new_state = not self.is_boosted.get()
         self.is_boosted.set(new_state)
         self._update_booster_ui()
@@ -173,18 +204,60 @@ class BoosterApp(tk.Tk):
         if self.is_boosted.get():
             threads = self.concurrency_var.get()
             self.btn_activate.config(
-                text=f"⚡ BOOSTER: ACTIVE ({threads}x Streams)",
+                text=f"⚡ DOWNLOADS: ACTIVE ({threads}x)",
                 bg="#1a472a",
                 fg=self.COLOR_GREEN_GLOW
             )
-            self._log_event(f"⚡ Booster Activated: {threads} parallel streams armed.")
+            self._log_event(f"⚡ Download Booster Activated: {threads} parallel streams armed.")
         else:
             self.btn_activate.config(
-                text="○ BOOSTER: STANDBY (1x Speed)",
+                text="○ DOWNLOADS: STANDBY",
                 bg="#262c36",
                 fg=self.COLOR_MUTED
             )
-            self._log_event("Booster switched to Standby mode (single connection).")
+            self._log_event("Download Booster switched to Standby mode (single connection).")
+
+    def _toggle_runtime_booster(self):
+        """Toggle Ollama inference speed booster."""
+        new_val = not self.is_runtime_boosted.get()
+        self.is_runtime_boosted.set(new_val)
+        if new_val:
+            self.runtime_booster.enable_runtime_acceleration()
+            self.btn_runtime_boost.config(
+                text="🚀 INFERENCE: ACTIVE",
+                bg="#1b3a4b",
+                fg=self.COLOR_CYAN
+            )
+            if hasattr(self, "btn_toggle_inf"):
+                self.btn_toggle_inf.config(
+                    text="⚡ INFERENCE BOOST: ACTIVE",
+                    bg="#1a472a",
+                    fg=self.COLOR_GREEN_GLOW
+                )
+            self._log_event("🚀 Inference Speed Booster ACTIVATED: Flash Attention enabled, Keep-Alive 24h, High Process Priority.")
+            messagebox.showinfo(
+                "Inference Booster Active",
+                "🚀 Ollama Model Speed Booster is now ACTIVE!\n\n"
+                "• Flash Attention enabled (OLLAMA_FLASH_ATTENTION=1)\n"
+                "• Persistent Warm VRAM Residency (OLLAMA_KEEP_ALIVE=24h, zero reload delay)\n"
+                f"• CPU Physical Core Affinity: {self.runtime_booster.physical_cores} threads\n"
+                "• Process Priority elevated to High (0ms OS thread delay)\n\n"
+                "All models will now run significantly faster!"
+            )
+        else:
+            self.runtime_booster.disable_runtime_acceleration()
+            self.btn_runtime_boost.config(
+                text="○ INFERENCE: OFF",
+                bg="#262c36",
+                fg=self.COLOR_MUTED
+            )
+            if hasattr(self, "btn_toggle_inf"):
+                self.btn_toggle_inf.config(
+                    text="○ INFERENCE BOOST: OFF",
+                    bg="#262c36",
+                    fg=self.COLOR_MUTED
+                )
+            self._log_event("Inference Speed Booster deactivated. Restored default Ollama settings.")
 
     # ---------------- TAB 1: TURBO PULL ----------------
 
@@ -531,14 +604,30 @@ class BoosterApp(tk.Tk):
         bar = tk.Frame(container, bg=self.COLOR_BG)
         bar.pack(fill=tk.X, pady=(0, 10))
 
-        btn_run = tk.Button(
+        btn_run_boosted = tk.Button(
             bar,
-            text="🚀 Run in Terminal",
+            text="⚡ Run Boosted",
             font=("Segoe UI", 9, "bold"),
-            bg=self.COLOR_GREEN,
-            fg="#ffffff",
+            bg="#1b3a4b",
+            fg=self.COLOR_CYAN,
+            activebackground="#204b63",
+            activeforeground="#ffffff",
             relief=tk.FLAT,
             padx=12,
+            pady=4,
+            cursor="hand2",
+            command=self._run_selected_model_boosted
+        )
+        btn_run_boosted.pack(side=tk.LEFT, padx=(0, 6))
+
+        btn_run = tk.Button(
+            bar,
+            text="🚀 Standard Run",
+            font=("Segoe UI", 9),
+            bg=self.COLOR_CARD,
+            fg=self.COLOR_TEXT,
+            relief=tk.FLAT,
+            padx=10,
             pady=4,
             cursor="hand2",
             command=self._run_selected_model
@@ -614,9 +703,16 @@ class BoosterApp(tk.Tk):
             self.tree_models.delete(item)
 
         models = self.manager.list_installed_models()
+        model_names = []
         for m in models:
+            model_names.append(m["name"])
             size_str = f"{m['size_gb']} GB" if m['size_gb'] >= 1.0 else f"{m['size_mb']} MB"
             self.tree_models.insert("", tk.END, values=(m["name"], m["id"], size_str, m["tag"]))
+
+        if hasattr(self, "inf_model_cb"):
+            self.inf_model_cb["values"] = model_names
+            if model_names and not self.inf_model_cb.get():
+                self.inf_model_cb.set(model_names[0])
 
     def _get_selected_model_name(self) -> Optional[str]:
         sel = self.tree_models.selection()
@@ -630,6 +726,11 @@ class BoosterApp(tk.Tk):
         name = self._get_selected_model_name()
         if name:
             self.manager.run_model_terminal(name)
+
+    def _run_selected_model_boosted(self):
+        name = self._get_selected_model_name()
+        if name:
+            self.runtime_booster.launch_boosted_terminal(name)
 
     def _copy_run_cmd(self):
         name = self._get_selected_model_name()
@@ -649,7 +750,250 @@ class BoosterApp(tk.Tk):
             else:
                 messagebox.showerror("Error", msg)
 
-    # ---------------- TAB 3: SPEED BENCHMARK ----------------
+    # ---------------- TAB 3: INFERENCE TURBO (SPEED BOOSTER) ----------------
+
+    def _build_tab_inference(self, parent):
+        container = tk.Frame(parent, bg=self.COLOR_BG)
+        container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # 1. Master Toggle & Acceleration Status Card
+        top_card = tk.Frame(container, bg=self.COLOR_CARD, highlightbackground=self.COLOR_BORDER, highlightthickness=1)
+        top_card.pack(fill=tk.X, pady=(0, 10))
+
+        top_header_row = tk.Frame(top_card, bg=self.COLOR_CARD)
+        top_header_row.pack(fill=tk.X, padx=15, pady=(12, 6))
+
+        title_col = tk.Frame(top_header_row, bg=self.COLOR_CARD)
+        title_col.pack(side=tk.LEFT)
+
+        tk.Label(
+            title_col,
+            text="⚡ INFERENCE TURBO ENGINE",
+            font=("Segoe UI", 11, "bold"),
+            fg=self.COLOR_CYAN,
+            bg=self.COLOR_CARD
+        ).pack(anchor="w")
+
+        tk.Label(
+            title_col,
+            text="Hardware-tuned Flash Attention, persistent VRAM residency & physical core optimization",
+            font=("Segoe UI", 8),
+            fg=self.COLOR_MUTED,
+            bg=self.COLOR_CARD
+        ).pack(anchor="w")
+
+        self.btn_toggle_inf = tk.Button(
+            top_header_row,
+            text="⚡ INFERENCE BOOST: ACTIVE" if self.is_runtime_boosted.get() else "○ INFERENCE BOOST: OFF",
+            font=("Segoe UI", 10, "bold"),
+            bg="#1a472a" if self.is_runtime_boosted.get() else "#262c36",
+            fg=self.COLOR_GREEN_GLOW if self.is_runtime_boosted.get() else self.COLOR_MUTED,
+            relief=tk.FLAT,
+            bd=0,
+            padx=14,
+            pady=6,
+            cursor="hand2",
+            command=self._toggle_runtime_booster
+        )
+        self.btn_toggle_inf.pack(side=tk.RIGHT)
+
+        # 5 Feature Badges Row
+        badges_frame = tk.Frame(top_card, bg=self.COLOR_CARD)
+        badges_frame.pack(fill=tk.X, padx=15, pady=(4, 12))
+
+        features = [
+            ("⚡ Flash Attention", "OLLAMA_FLASH_ATTENTION=1 (Faster generation)"),
+            ("⚡ 24h Keep-Alive", "Zero cold-start 5-min reloads"),
+            ("⚡ Core Affinity", f"{self.runtime_booster.physical_cores} Physical Cores (No SMT thrash)"),
+            ("⚡ High Priority", "0ms Windows thread throttling"),
+            ("⚡ Batch Turbo", "num_batch=1024 (Fast TTFT)")
+        ]
+
+        for label, sub in features:
+            badge = tk.Frame(badges_frame, bg="#21262d", highlightbackground="#30363d", highlightthickness=1)
+            badge.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=3)
+            tk.Label(badge, text=label, font=("Segoe UI", 8, "bold"), fg=self.COLOR_TEXT, bg="#21262d").pack(anchor="w", padx=6, pady=(4, 1))
+            tk.Label(badge, text=sub, font=("Segoe UI", 7), fg=self.COLOR_MUTED, bg="#21262d").pack(anchor="w", padx=6, pady=(0, 4))
+
+        # 2. Interactive Testing & Speedometer Card
+        test_card = tk.Frame(container, bg=self.COLOR_CARD, highlightbackground=self.COLOR_BORDER, highlightthickness=1)
+        test_card.pack(fill=tk.BOTH, expand=True)
+
+        test_header = tk.Frame(test_card, bg=self.COLOR_CARD)
+        test_header.pack(fill=tk.X, padx=15, pady=(12, 6))
+
+        tk.Label(
+            test_header,
+            text="LIVE MODEL INFERENCE BENCHMARK & SPEEDOMETER",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.COLOR_MUTED,
+            bg=self.COLOR_CARD
+        ).pack(side=tk.LEFT)
+
+        # Model Selection & Prompt Input Row
+        input_row = tk.Frame(test_card, bg=self.COLOR_CARD)
+        input_row.pack(fill=tk.X, padx=15, pady=(0, 8))
+
+        tk.Label(input_row, text="Model:", font=("Segoe UI", 9, "bold"), fg=self.COLOR_TEXT, bg=self.COLOR_CARD).pack(side=tk.LEFT, padx=(0, 6))
+        self.inf_model_cb = ttk.Combobox(input_row, font=("Consolas", 10), state="readonly", width=38)
+        self.inf_model_cb.pack(side=tk.LEFT, padx=(0, 10))
+
+        self.btn_inf_run = tk.Button(
+            input_row,
+            text="⚡ Stream & Measure Speed",
+            font=("Segoe UI", 9, "bold"),
+            bg=self.COLOR_GREEN,
+            fg="#ffffff",
+            relief=tk.FLAT,
+            padx=14,
+            pady=3,
+            cursor="hand2",
+            command=self._start_inference_test
+        )
+        self.btn_inf_run.pack(side=tk.LEFT, padx=(0, 6))
+
+        self.btn_inf_terminal = tk.Button(
+            input_row,
+            text="🚀 Launch Boosted Terminal",
+            font=("Segoe UI", 9),
+            bg="#21262d",
+            fg=self.COLOR_CYAN,
+            relief=tk.FLAT,
+            padx=10,
+            pady=3,
+            cursor="hand2",
+            command=self._launch_inference_terminal
+        )
+        self.btn_inf_terminal.pack(side=tk.LEFT)
+
+        # Prompt Row with Quick Preset Buttons
+        prompt_box = tk.Frame(test_card, bg=self.COLOR_CARD)
+        prompt_box.pack(fill=tk.X, padx=15, pady=(0, 8))
+
+        self.inf_prompt_var = tk.StringVar(value="Explain artificial intelligence in two concise sentences.")
+        self.inf_prompt_entry = tk.Entry(
+            prompt_box,
+            textvariable=self.inf_prompt_var,
+            font=("Consolas", 10),
+            bg="#0d1117",
+            fg=self.COLOR_TEXT,
+            insertbackground=self.COLOR_CYAN,
+            relief=tk.FLAT,
+            bd=4
+        )
+        self.inf_prompt_entry.pack(fill=tk.X, pady=(0, 6))
+
+        presets_row = tk.Frame(prompt_box, bg=self.COLOR_CARD)
+        presets_row.pack(fill=tk.X)
+
+        tk.Label(presets_row, text="Quick Prompts:", font=("Segoe UI", 8), fg=self.COLOR_MUTED, bg=self.COLOR_CARD).pack(side=tk.LEFT, padx=(0, 6))
+        for q_lbl, q_text in [
+            ("Short Fact", "Give me 1 fascinating fact about astronomy."),
+            ("Python Code", "Write a Python function to check for palindromes."),
+            ("Speed Benchmark", "Write a 50-word poem about speed and light.")
+        ]:
+            btn_q = tk.Button(
+                presets_row,
+                text=q_lbl,
+                font=("Segoe UI", 8),
+                bg="#21262d",
+                fg=self.COLOR_TEXT,
+                relief=tk.FLAT,
+                padx=8,
+                pady=1,
+                cursor="hand2",
+                command=lambda t=q_text: self.inf_prompt_var.set(t)
+            )
+            btn_q.pack(side=tk.LEFT, padx=3)
+
+        # Digital Gauges Row
+        gauge_row = tk.Frame(test_card, bg=self.COLOR_CARD)
+        gauge_row.pack(fill=tk.X, padx=15, pady=(4, 8))
+
+        # Gauge 1: Generation Speed
+        g1 = tk.Frame(gauge_row, bg="#0d1117", highlightbackground="#30363d", highlightthickness=1)
+        g1.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
+        tk.Label(g1, text="GENERATION SPEED", font=("Segoe UI", 7, "bold"), fg=self.COLOR_MUTED, bg="#0d1117").pack(anchor="w", padx=10, pady=(6, 0))
+        self.lbl_inf_tps = tk.Label(g1, text="0.0 tok/s", font=("Consolas", 18, "bold"), fg=self.COLOR_CYAN, bg="#0d1117")
+        self.lbl_inf_tps.pack(anchor="w", padx=10, pady=(0, 2))
+        self.lbl_inf_ttft = tk.Label(g1, text="TTFT: --  |  Prompt Eval: --", font=("Segoe UI", 8), fg=self.COLOR_MUTED, bg="#0d1117")
+        self.lbl_inf_ttft.pack(anchor="w", padx=10, pady=(0, 6))
+
+        # Gauge 2: Tokens & Latency
+        g2 = tk.Frame(gauge_row, bg="#0d1117", highlightbackground="#30363d", highlightthickness=1)
+        g2.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(6, 0))
+        tk.Label(g2, text="TOKENS & LATENCY", font=("Segoe UI", 7, "bold"), fg=self.COLOR_MUTED, bg="#0d1117").pack(anchor="w", padx=10, pady=(6, 0))
+        self.lbl_inf_tokens = tk.Label(g2, text="0 tokens", font=("Consolas", 18, "bold"), fg=self.COLOR_TEXT, bg="#0d1117")
+        self.lbl_inf_tokens.pack(anchor="w", padx=10, pady=(0, 2))
+        self.lbl_inf_dur = tk.Label(g2, text="Total Duration: 0.0s", font=("Segoe UI", 8), fg=self.COLOR_MUTED, bg="#0d1117")
+        self.lbl_inf_dur.pack(anchor="w", padx=10, pady=(0, 6))
+
+        # Streaming Text Output Box
+        out_frame = tk.Frame(test_card, bg="#0d1117")
+        out_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 12))
+
+        self.inf_text_out = tk.Text(
+            out_frame,
+            bg="#0d1117",
+            fg="#e6edf3",
+            font=("Consolas", 10),
+            relief=tk.FLAT,
+            wrap=tk.WORD,
+            height=8
+        )
+        self.inf_text_out.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+    def _start_inference_test(self):
+        model = self.inf_model_cb.get().strip()
+        if not model:
+            messagebox.showwarning("Selection Required", "Please select a model from the dropdown to test.")
+            return
+        prompt = self.inf_prompt_var.get().strip()
+        if not prompt:
+            return
+
+        self.btn_inf_run.config(state=tk.DISABLED)
+        self.inf_text_out.delete("1.0", tk.END)
+        self.inf_text_out.insert(tk.END, f"🚀 Executing boosted inference on {model}...\n\n")
+
+        def run():
+            try:
+                stream = self.runtime_booster.generate_boosted_stream(model, prompt)
+                for chunk in stream:
+                    tok = chunk.get("token", "")
+                    tps = chunk.get("current_tps", 0.0)
+                    ttft = chunk.get("ttft")
+                    toks = chunk.get("tokens_so_far", 0)
+                    dur = chunk.get("total_duration_sec", 0.0)
+                    pe_dur = chunk.get("prompt_eval_duration_sec")
+                    pe_cnt = chunk.get("prompt_eval_count")
+
+                    def update(t=tok, s=tps, tf=ttft, cnt=toks, d=dur, pc=pe_cnt, pd=pe_dur):
+                        self.inf_text_out.insert(tk.END, t)
+                        self.inf_text_out.see(tk.END)
+                        self.lbl_inf_tps.config(text=f"{s:.1f} tok/s")
+                        self.lbl_inf_tokens.config(text=f"{cnt} tokens")
+                        self.lbl_inf_dur.config(text=f"Total Duration: {d:.2f}s")
+                        if tf is not None:
+                            pe_str = f"Prompt Eval: {(pc/pd):.1f} tok/s" if (pc and pd and pd > 0) else ""
+                            self.lbl_inf_ttft.config(text=f"TTFT: {tf:.2f}s  |  {pe_str}")
+
+                    self.after(0, update)
+            except Exception as e:
+                self.after(0, lambda err=str(e): self.inf_text_out.insert(tk.END, f"\n\n❌ Error connecting to Ollama: {err}\nEnsure Ollama is running."))
+            finally:
+                self.after(0, lambda: self.btn_inf_run.config(state=tk.NORMAL))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _launch_inference_terminal(self):
+        model = self.inf_model_cb.get().strip()
+        if not model:
+            messagebox.showwarning("Selection Required", "Please select a model from the dropdown.")
+            return
+        self.runtime_booster.launch_boosted_terminal(model)
+
+    # ---------------- TAB 4: SPEED BENCHMARK ----------------
 
     def _build_tab_benchmark(self, parent):
         container = tk.Frame(parent, bg=self.COLOR_BG)

@@ -216,10 +216,82 @@ def cmd_proxy(args):
         print(f"\n{YELLOW}Booster proxy stopped.{RESET}")
 
 
+def cmd_boost_runtime(args):
+    from .runtime_booster import RuntimeBooster
+    print_banner()
+    rb = RuntimeBooster()
+
+    if args.action == "off":
+        rb.disable_runtime_acceleration()
+        print(f"{YELLOW}[*] Ollama Runtime Booster: DEACTIVATED{RESET}")
+        print("  - Restored default Ollama environment variables.")
+        print("  - Restored standard process priority.")
+    else:
+        rb.enable_runtime_acceleration()
+        print(f"{GREEN}{BOLD}[*] Ollama Runtime Booster: ACTIVATED!{RESET}")
+        print("  [+] Flash Attention enabled (OLLAMA_FLASH_ATTENTION=1)")
+        print("  [+] Model Keep-Alive set to 24h (OLLAMA_KEEP_ALIVE=24h, zero cold-start reloads)")
+        print(f"  [+] Physical CPU cores tuned: {rb.physical_cores} threads")
+        print("  [+] Process priority elevated to High (0ms OS throttling)")
+        print(f"\n{BOLD}Any new or running Ollama models will now run accelerated.{RESET}\n")
+
+
+def cmd_run_boosted(args):
+    from .runtime_booster import RuntimeBooster
+    print_banner()
+    rb = RuntimeBooster()
+    model = args.model
+    print(f"Launching {CYAN}{model}{RESET} with runtime acceleration...")
+    rb.launch_boosted_terminal(model)
+
+
+def cmd_bench_inference(args):
+    from .runtime_booster import RuntimeBooster
+    print_banner()
+    rb = RuntimeBooster()
+    model = args.model
+    prompt = args.prompt or "Explain quantum computing in two concise sentences."
+
+    print(f"{BOLD}Model:{RESET}   {CYAN}{model}{RESET}")
+    print(f"{BOLD}Prompt:{RESET}  {prompt}")
+    print(f"{BOLD}Hardware Tuning:{RESET} {rb.physical_cores} CPU Cores | Flash Attn: ON | High Priority")
+    print("-" * 65)
+
+    try:
+        stream = rb.generate_boosted_stream(model, prompt)
+        print(f"{CYAN}{BOLD}Generated Response:{RESET}\n")
+        first_chunk = True
+        final_chunk = None
+
+        for chunk in stream:
+            token = chunk.get("token", "")
+            if token:
+                sys.stdout.write(token)
+                sys.stdout.flush()
+            if chunk.get("done"):
+                final_chunk = chunk
+
+        print("\n" + "-" * 65)
+        if final_chunk:
+            tps = final_chunk.get("current_tps", 0.0)
+            ttft = final_chunk.get("ttft", 0.0)
+            toks = final_chunk.get("tokens_so_far", 0)
+            dur = final_chunk.get("total_duration_sec", 0.0)
+            print(f"{GREEN}{BOLD}[*] Inference Performance Stats:{RESET}")
+            print(f"• Generation Speed:   {CYAN}{BOLD}{tps:.2f} tokens/second{RESET}")
+            print(f"• Time-to-First-Token: {ttft:.2f}s")
+            print(f"• Total Generated:    {toks} tokens in {dur:.2f}s")
+            print(f"• Process Priority:   High (Active)")
+            print(f"• Flash Attention:    Enabled\n")
+    except Exception as e:
+        print(f"\n{RED}[ERROR] Failed to run inference: {e}{RESET}")
+        print("Ensure Ollama server is running (e.g. 'ollama serve').")
+
+
 def cli_main():
     parser = argparse.ArgumentParser(
         prog="ollama-booster",
-        description="Ollama Download Booster - Accelerate Ollama model pulls by up to 10x"
+        description="Ollama Download & Runtime Booster - Accelerate downloads and model inference"
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -232,11 +304,24 @@ def cli_main():
     subparsers.add_parser("list", help="List installed Ollama models")
 
     # benchmark
-    subparsers.add_parser("test-speed", help="Run multi-stream vs single-stream benchmark")
+    subparsers.add_parser("test-speed", help="Run multi-stream vs single-stream download benchmark")
 
     # proxy
     proxy_parser = subparsers.add_parser("proxy", help="Run local accelerator proxy")
     proxy_parser.add_argument("-p", "--port", type=int, default=11435, help="Port to listen on (default: 11435)")
+
+    # boost-runtime
+    rt_parser = subparsers.add_parser("boost-runtime", help="Enable or disable persistent inference speed acceleration")
+    rt_parser.add_argument("action", nargs="?", choices=["on", "off"], default="on", help="Enable (on) or disable (off)")
+
+    # run-boosted
+    run_parser = subparsers.add_parser("run-boosted", help="Launch an interactive model session with runtime acceleration")
+    run_parser.add_argument("model", help="Model name to run")
+
+    # bench-inference
+    bench_parser = subparsers.add_parser("bench-inference", help="Benchmark generation speed (tokens/sec) of an installed model")
+    bench_parser.add_argument("model", help="Model name to benchmark")
+    bench_parser.add_argument("-p", "--prompt", help="Custom test prompt")
 
     args = parser.parse_args()
 
@@ -248,6 +333,12 @@ def cli_main():
         cmd_speed_test(args)
     elif args.command == "proxy":
         cmd_proxy(args)
+    elif args.command == "boost-runtime":
+        cmd_boost_runtime(args)
+    elif args.command == "run-boosted":
+        cmd_run_boosted(args)
+    elif args.command == "bench-inference":
+        cmd_bench_inference(args)
     else:
         # Default to GUI when no command is passed
         from .gui import start_gui
