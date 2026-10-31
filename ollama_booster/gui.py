@@ -90,6 +90,7 @@ class BoosterApp(ctk.CTk):
 
         self.concurrency_var = ctk.StringVar(value="16x (Fastest)")
         self.model_input_var = ctk.StringVar(value="llama3.2:1b")
+        self.model_input_var.trace_add("write", lambda *args: self._on_model_input_changed())
         self.search_model_var = ctk.StringVar()
         self.search_model_var.trace_add("write", lambda *args: self._filter_model_cards())
 
@@ -484,25 +485,21 @@ class BoosterApp(ctk.CTk):
         )
         btn_hf_help.pack(side="right")
 
-        # Hugging Face Token Quick Status & Connect Strip
+        # Registry Mode Status Strip
         hf_token_strip = ctk.CTkFrame(ctrl_card, fg_color=self.COLOR_BG_DARK, corner_radius=6)
         hf_token_strip.pack(fill="x", padx=16, pady=(0, 10))
 
-        tok_val = (self.hf_token_var.get() or "").strip()
-        has_tok = bool(tok_val and is_valid_hf_token(tok_val))
-        masked_tok = f"{tok_val[:4]}••••••••{tok_val[-4:]}" if has_tok and len(tok_val) >= 12 else ""
-
         self.lbl_pull_hf_status = ctk.CTkLabel(
             hf_token_strip,
-            text=f"🟢 HF Token Active ({masked_tok}) • Gated models enabled" if has_tok else "⚪ HF Token: None (Gated models require token)",
+            text="⚡ Standard Ollama Registry — Zero tokens needed! Pulls directly at 16x parallel speed.",
             font=("Segoe UI", 9),
-            text_color=self.COLOR_GREEN if has_tok else self.COLOR_TEXT_MUTED
+            text_color=self.COLOR_CYAN
         )
         self.lbl_pull_hf_status.pack(side="left", padx=10, pady=6)
 
         self.btn_pull_hf_connect = ctk.CTkButton(
             hf_token_strip,
-            text="🔄 Change Token" if has_tok else "🚀 1-Click Connect Token",
+            text="🚀 1-Click Connect Token",
             font=("Segoe UI", 8, "bold"),
             fg_color=self.COLOR_CARD_ALT,
             hover_color=self.COLOR_CARD_HOVER,
@@ -511,7 +508,7 @@ class BoosterApp(ctk.CTk):
             corner_radius=4,
             command=self._start_hf_auto_connect
         )
-        self.btn_pull_hf_connect.pack(side="right", padx=8, pady=4)
+        # Note: btn_pull_hf_connect is packed only when an hf.co model is entered
 
         # Concurrency & Acceleration Bar
         concurrency_row = ctk.CTkFrame(ctrl_card, fg_color="transparent")
@@ -2123,28 +2120,50 @@ class BoosterApp(ctk.CTk):
         if hasattr(self, "lbl_hf_listen_status") and self.lbl_hf_listen_status.winfo_exists():
             self.lbl_hf_listen_status.configure(text=text, text_color=color)
 
-    def _update_hf_token_ui(self):
-        """Updates all HF token indicators and badges across views."""
+    def _on_model_input_changed(self):
+        """Dynamically adapts the pull tab helper depending on whether the user is pulling standard Ollama vs Hugging Face."""
+        if not hasattr(self, "lbl_pull_hf_status") or not self.lbl_pull_hf_status.winfo_exists():
+            return
+        val = self.model_input_var.get().strip().lower()
+        is_hf = "hf.co" in val or "huggingface" in val
         tok = (self.hf_token_var.get() or "").strip()
         has_tok = bool(tok and is_valid_hf_token(tok))
-        masked = f"{tok[:4]}••••••••{tok[-4:]}" if has_tok and len(tok) >= 12 else (tok if has_tok else "")
+        masked_tok = f"{tok[:4]}••••••••{tok[-4:]}" if has_tok and len(tok) >= 12 else ""
 
-        # Update Pull Tab Strip
-        if hasattr(self, "lbl_pull_hf_status") and self.lbl_pull_hf_status.winfo_exists():
+        if is_hf:
             if has_tok:
                 self.lbl_pull_hf_status.configure(
-                    text=f"🟢 HF Token Active ({masked}) • Gated models enabled",
+                    text=f"🟢 Hugging Face Mode: Token Active ({masked_tok}) • Gated models enabled",
                     text_color=self.COLOR_GREEN
                 )
                 if hasattr(self, "btn_pull_hf_connect") and self.btn_pull_hf_connect.winfo_exists():
                     self.btn_pull_hf_connect.configure(text="🔄 Change Token")
             else:
                 self.lbl_pull_hf_status.configure(
-                    text="⚪ HF Token: None (Gated models require token)",
-                    text_color=self.COLOR_TEXT_MUTED
+                    text="🤗 Hugging Face Mode: Public models work without token. (Gated models require HF token)",
+                    text_color="#c4b5fd"
                 )
                 if hasattr(self, "btn_pull_hf_connect") and self.btn_pull_hf_connect.winfo_exists():
-                    self.btn_pull_hf_connect.configure(text="🚀 1-Click Connect Token")
+                    self.btn_pull_hf_connect.configure(text="🔑 Connect HF Token")
+            if hasattr(self, "btn_pull_hf_connect") and self.btn_pull_hf_connect.winfo_exists():
+                if not self.btn_pull_hf_connect.winfo_ismapped():
+                    self.btn_pull_hf_connect.pack(side="right", padx=8, pady=4)
+        else:
+            self.lbl_pull_hf_status.configure(
+                text="⚡ Standard Ollama Registry — Zero tokens needed! Pulls directly at 16x parallel speed.",
+                text_color=self.COLOR_CYAN
+            )
+            if hasattr(self, "btn_pull_hf_connect") and self.btn_pull_hf_connect.winfo_exists():
+                if self.btn_pull_hf_connect.winfo_ismapped():
+                    self.btn_pull_hf_connect.pack_forget()
+
+    def _update_hf_token_ui(self):
+        """Updates all HF token indicators and badges across views."""
+        self._on_model_input_changed()
+
+        tok = (self.hf_token_var.get() or "").strip()
+        has_tok = bool(tok and is_valid_hf_token(tok))
+        masked = f"{tok[:4]}••••••••{tok[-4:]}" if has_tok and len(tok) >= 12 else (tok if has_tok else "")
 
         # Update Settings Tab Badge
         if hasattr(self, "lbl_settings_hf_status") and self.lbl_settings_hf_status.winfo_exists():
@@ -2155,7 +2174,7 @@ class BoosterApp(ctk.CTk):
                 )
             else:
                 self.lbl_settings_hf_status.configure(
-                    text="⚪ No Token Configured — Gated models require an access token",
+                    text="⚪ No Token Configured — Gated Hugging Face models require an access token",
                     text_color=self.COLOR_TEXT_MUTED
                 )
 
