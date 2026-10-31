@@ -98,32 +98,32 @@ class BoosterApp(tk.Tk):
         self._build_header()
 
         # Tabs Container
-        notebook = ttk.Notebook(self)
-        notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=(10, 10))
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=20, pady=(10, 10))
 
         # Tab 1: Turbo Pull
-        tab_pull = tk.Frame(notebook, bg=self.COLOR_BG)
-        notebook.add(tab_pull, text="  ⚡ Turbo Pull  ")
+        tab_pull = tk.Frame(self.notebook, bg=self.COLOR_BG)
+        self.notebook.add(tab_pull, text="  ⚡ Turbo Pull  ")
         self._build_tab_pull(tab_pull)
 
         # Tab 2: Installed Models
-        tab_models = tk.Frame(notebook, bg=self.COLOR_BG)
-        notebook.add(tab_models, text="  📦 Models Manager  ")
+        tab_models = tk.Frame(self.notebook, bg=self.COLOR_BG)
+        self.notebook.add(tab_models, text="  📦 Models Manager  ")
         self._build_tab_models(tab_models)
 
         # Tab 3: Inference Turbo (Model Speed Booster)
-        tab_inference = tk.Frame(notebook, bg=self.COLOR_BG)
-        notebook.add(tab_inference, text="  🚀 Inference Turbo  ")
+        tab_inference = tk.Frame(self.notebook, bg=self.COLOR_BG)
+        self.notebook.add(tab_inference, text="  🚀 Inference Turbo  ")
         self._build_tab_inference(tab_inference)
 
         # Tab 4: Speed Benchmark
-        tab_benchmark = tk.Frame(notebook, bg=self.COLOR_BG)
-        notebook.add(tab_benchmark, text="  📊 Speed Benchmark  ")
+        tab_benchmark = tk.Frame(self.notebook, bg=self.COLOR_BG)
+        self.notebook.add(tab_benchmark, text="  📊 Speed Benchmark  ")
         self._build_tab_benchmark(tab_benchmark)
 
         # Tab 5: Booster Proxy & Settings
-        tab_settings = tk.Frame(notebook, bg=self.COLOR_BG)
-        notebook.add(tab_settings, text="  ⚙️ Settings & Proxy  ")
+        tab_settings = tk.Frame(self.notebook, bg=self.COLOR_BG)
+        self.notebook.add(tab_settings, text="  ⚙️ Settings & Proxy  ")
         self._build_tab_settings(tab_settings)
 
         # Bottom Status Bar
@@ -620,6 +620,20 @@ class BoosterApp(tk.Tk):
         )
         btn_run_boosted.pack(side=tk.LEFT, padx=(0, 6))
 
+        btn_turbo_profile = tk.Button(
+            bar,
+            text="⚡ Create -turbo Copy",
+            font=("Segoe UI", 9),
+            bg=self.COLOR_CARD,
+            fg=self.COLOR_CYAN,
+            relief=tk.FLAT,
+            padx=10,
+            pady=4,
+            cursor="hand2",
+            command=self._create_selected_model_turbo
+        )
+        btn_turbo_profile.pack(side=tk.LEFT, padx=(0, 6))
+
         btn_run = tk.Button(
             bar,
             text="🚀 Standard Run",
@@ -750,6 +764,79 @@ class BoosterApp(tk.Tk):
             else:
                 messagebox.showerror("Error", msg)
 
+    def _create_selected_model_turbo(self, target_model: Optional[str] = None):
+        name = target_model or self._get_selected_model_name()
+        if not name:
+            return
+        if "-turbo" in name:
+            messagebox.showinfo("Already Tuned", f"'{name}' is already an optimized turbo profile.")
+            return
+
+        ctx_val = 2048
+        if hasattr(self, "inf_ctx_var"):
+            try:
+                ctx_val = int(self.inf_ctx_var.get())
+            except Exception:
+                pass
+
+        def worker():
+            ok, msg = self.runtime_booster.create_turbo_model_copy(name, num_ctx=ctx_val)
+            def finish():
+                if ok:
+                    self._refresh_installed_models()
+                    messagebox.showinfo("Turbo Profile Created", msg)
+                else:
+                    messagebox.showerror("Turbo Profile Error", msg)
+            self.after(0, finish)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _restart_ollama_turbo(self):
+        if messagebox.askyesno(
+            "Restart Ollama with Turbo",
+            "This will restart the Ollama service injecting:\n\n"
+            "• AMD Radeon iGPU Vulkan Acceleration (OLLAMA_IGPU_ENABLE=1)\n"
+            "• Flash Attention (OLLAMA_FLASH_ATTENTION=1)\n"
+            "• 24h Keep-Alive Residency (OLLAMA_KEEP_ALIVE=24h)\n"
+            "• Windows High Process Priority\n\n"
+            "Restart Ollama service now?"
+        ):
+            if hasattr(self, "btn_restart_ollama"):
+                self.btn_restart_ollama.config(state=tk.DISABLED, text="⏳ Restarting...")
+            def worker():
+                ok, msg = self.runtime_booster.restart_ollama_with_turbo()
+                def finish():
+                    if hasattr(self, "btn_restart_ollama"):
+                        self.btn_restart_ollama.config(state=tk.NORMAL, text="🔄 Apply & Restart Ollama with Turbo")
+                    self._update_ollama_service_indicator()
+                    if ok:
+                        messagebox.showinfo("Ollama Turbo Active", msg)
+                    else:
+                        messagebox.showerror("Restart Error", msg)
+                self.after(0, finish)
+            threading.Thread(target=worker, daemon=True).start()
+
+    def _update_ollama_service_indicator(self):
+        running = self.runtime_booster.is_ollama_running()
+        if hasattr(self, "lbl_ollama_service_status"):
+            if running:
+                self.lbl_ollama_service_status.config(
+                    text="● Ollama Service: Active (127.0.0.1:11434 - Vulkan Turbo)",
+                    fg=self.COLOR_GREEN_GLOW
+                )
+            else:
+                self.lbl_ollama_service_status.config(
+                    text="○ Ollama Service: Offline",
+                    fg=self.COLOR_RED
+                )
+
+    def _quick_pull_model(self, model_name: str):
+        if hasattr(self, "notebook"):
+            self.notebook.select(0)
+        self.model_input_var.set(model_name)
+        if not self.is_downloading:
+            self._start_download()
+
     # ---------------- TAB 3: INFERENCE TURBO (SPEED BOOSTER) ----------------
 
     def _build_tab_inference(self, parent):
@@ -761,7 +848,7 @@ class BoosterApp(tk.Tk):
         top_card.pack(fill=tk.X, pady=(0, 10))
 
         top_header_row = tk.Frame(top_card, bg=self.COLOR_CARD)
-        top_header_row.pack(fill=tk.X, padx=15, pady=(12, 6))
+        top_header_row.pack(fill=tk.X, padx=15, pady=(10, 4))
 
         title_col = tk.Frame(top_header_row, bg=self.COLOR_CARD)
         title_col.pack(side=tk.LEFT)
@@ -776,7 +863,7 @@ class BoosterApp(tk.Tk):
 
         tk.Label(
             title_col,
-            text="Hardware-tuned Flash Attention, persistent VRAM residency & physical core optimization",
+            text="AMD iGPU Vulkan acceleration, Flash Attention, 24h VRAM residency & physical core optimization",
             font=("Segoe UI", 8),
             fg=self.COLOR_MUTED,
             bg=self.COLOR_CARD
@@ -799,14 +886,14 @@ class BoosterApp(tk.Tk):
 
         # 5 Feature Badges Row
         badges_frame = tk.Frame(top_card, bg=self.COLOR_CARD)
-        badges_frame.pack(fill=tk.X, padx=15, pady=(4, 12))
+        badges_frame.pack(fill=tk.X, padx=15, pady=(4, 8))
 
         features = [
-            ("⚡ Flash Attention", "OLLAMA_FLASH_ATTENTION=1 (Faster generation)"),
+            ("⚡ AMD iGPU Vulkan", "OLLAMA_IGPU_ENABLE=1 (Vulkan offload)"),
+            ("⚡ Flash Attention", "OLLAMA_FLASH_ATTENTION=1 (Fast generation)"),
             ("⚡ 24h Keep-Alive", "Zero cold-start 5-min reloads"),
             ("⚡ Core Affinity", f"{self.runtime_booster.physical_cores} Physical Cores (No SMT thrash)"),
-            ("⚡ High Priority", "0ms Windows thread throttling"),
-            ("⚡ Batch Turbo", "num_batch=1024 (Fast TTFT)")
+            ("⚡ High Priority", "0ms Windows thread throttling")
         ]
 
         for label, sub in features:
@@ -815,12 +902,53 @@ class BoosterApp(tk.Tk):
             tk.Label(badge, text=label, font=("Segoe UI", 8, "bold"), fg=self.COLOR_TEXT, bg="#21262d").pack(anchor="w", padx=6, pady=(4, 1))
             tk.Label(badge, text=sub, font=("Segoe UI", 7), fg=self.COLOR_MUTED, bg="#21262d").pack(anchor="w", padx=6, pady=(0, 4))
 
+        # Service Action & Restart Row
+        svc_bar = tk.Frame(top_card, bg="#161b22", highlightbackground="#30363d", highlightthickness=1)
+        svc_bar.pack(fill=tk.X, padx=15, pady=(0, 10))
+
+        svc_left = tk.Frame(svc_bar, bg="#161b22")
+        svc_left.pack(side=tk.LEFT, padx=10, pady=6)
+
+        is_running = self.runtime_booster.is_ollama_running()
+        self.lbl_ollama_service_status = tk.Label(
+            svc_left,
+            text="● Ollama Service: Active (127.0.0.1:11434 - Vulkan Turbo)" if is_running else "○ Ollama Service: Offline",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.COLOR_GREEN_GLOW if is_running else self.COLOR_RED,
+            bg="#161b22"
+        )
+        self.lbl_ollama_service_status.pack(anchor="w")
+
+        tk.Label(
+            svc_left,
+            text="💡 Apply Turbo: Ollama only initializes GPU Vulkan & Flash Attention on service startup.",
+            font=("Segoe UI", 7),
+            fg=self.COLOR_MUTED,
+            bg="#161b22"
+        ).pack(anchor="w")
+
+        self.btn_restart_ollama = tk.Button(
+            svc_bar,
+            text="🔄 Apply & Restart Ollama with Turbo",
+            font=("Segoe UI", 9, "bold"),
+            bg="#238636",
+            fg="#ffffff",
+            activebackground="#2ea043",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=12,
+            pady=4,
+            cursor="hand2",
+            command=self._restart_ollama_turbo
+        )
+        self.btn_restart_ollama.pack(side=tk.RIGHT, padx=10, pady=6)
+
         # 2. Interactive Testing & Speedometer Card
         test_card = tk.Frame(container, bg=self.COLOR_CARD, highlightbackground=self.COLOR_BORDER, highlightthickness=1)
         test_card.pack(fill=tk.BOTH, expand=True)
 
         test_header = tk.Frame(test_card, bg=self.COLOR_CARD)
-        test_header.pack(fill=tk.X, padx=15, pady=(12, 6))
+        test_header.pack(fill=tk.X, padx=15, pady=(8, 4))
 
         tk.Label(
             test_header,
@@ -832,11 +960,30 @@ class BoosterApp(tk.Tk):
 
         # Model Selection & Prompt Input Row
         input_row = tk.Frame(test_card, bg=self.COLOR_CARD)
-        input_row.pack(fill=tk.X, padx=15, pady=(0, 8))
+        input_row.pack(fill=tk.X, padx=15, pady=(0, 6))
 
         tk.Label(input_row, text="Model:", font=("Segoe UI", 9, "bold"), fg=self.COLOR_TEXT, bg=self.COLOR_CARD).pack(side=tk.LEFT, padx=(0, 6))
-        self.inf_model_cb = ttk.Combobox(input_row, font=("Consolas", 10), state="readonly", width=38)
-        self.inf_model_cb.pack(side=tk.LEFT, padx=(0, 10))
+        self.inf_model_cb = ttk.Combobox(input_row, font=("Consolas", 10), state="readonly", width=26)
+        self.inf_model_cb.pack(side=tk.LEFT, padx=(0, 8))
+
+        tk.Label(input_row, text="Ctx:", font=("Segoe UI", 8, "bold"), fg=self.COLOR_MUTED, bg=self.COLOR_CARD).pack(side=tk.LEFT, padx=(0, 3))
+        self.inf_ctx_var = tk.StringVar(value="2048")
+        ctx_cb = ttk.Combobox(input_row, textvariable=self.inf_ctx_var, values=["1024", "2048", "4096", "8192"], width=5, state="readonly")
+        ctx_cb.pack(side=tk.LEFT, padx=(0, 8))
+
+        btn_turbo_profile = tk.Button(
+            input_row,
+            text="⚡ Create -turbo Copy",
+            font=("Segoe UI", 8, "bold"),
+            bg="#1f3a4d",
+            fg=self.COLOR_CYAN,
+            relief=tk.FLAT,
+            padx=8,
+            pady=3,
+            cursor="hand2",
+            command=lambda: self._create_selected_model_turbo(self.inf_model_cb.get().strip())
+        )
+        btn_turbo_profile.pack(side=tk.LEFT, padx=(0, 6))
 
         self.btn_inf_run = tk.Button(
             input_row,
@@ -845,7 +992,7 @@ class BoosterApp(tk.Tk):
             bg=self.COLOR_GREEN,
             fg="#ffffff",
             relief=tk.FLAT,
-            padx=14,
+            padx=12,
             pady=3,
             cursor="hand2",
             command=self._start_inference_test
@@ -854,12 +1001,12 @@ class BoosterApp(tk.Tk):
 
         self.btn_inf_terminal = tk.Button(
             input_row,
-            text="🚀 Launch Boosted Terminal",
+            text="🚀 Terminal",
             font=("Segoe UI", 9),
             bg="#21262d",
             fg=self.COLOR_CYAN,
             relief=tk.FLAT,
-            padx=10,
+            padx=8,
             pady=3,
             cursor="hand2",
             command=self._launch_inference_terminal
@@ -868,7 +1015,7 @@ class BoosterApp(tk.Tk):
 
         # Prompt Row with Quick Preset Buttons
         prompt_box = tk.Frame(test_card, bg=self.COLOR_CARD)
-        prompt_box.pack(fill=tk.X, padx=15, pady=(0, 8))
+        prompt_box.pack(fill=tk.X, padx=15, pady=(0, 6))
 
         self.inf_prompt_var = tk.StringVar(value="Explain artificial intelligence in two concise sentences.")
         self.inf_prompt_entry = tk.Entry(
@@ -879,9 +1026,9 @@ class BoosterApp(tk.Tk):
             fg=self.COLOR_TEXT,
             insertbackground=self.COLOR_CYAN,
             relief=tk.FLAT,
-            bd=4
+            bd=3
         )
-        self.inf_prompt_entry.pack(fill=tk.X, pady=(0, 6))
+        self.inf_prompt_entry.pack(fill=tk.X, pady=(0, 4))
 
         presets_row = tk.Frame(prompt_box, bg=self.COLOR_CARD)
         presets_row.pack(fill=tk.X)
@@ -908,40 +1055,99 @@ class BoosterApp(tk.Tk):
 
         # Digital Gauges Row
         gauge_row = tk.Frame(test_card, bg=self.COLOR_CARD)
-        gauge_row.pack(fill=tk.X, padx=15, pady=(4, 8))
+        gauge_row.pack(fill=tk.X, padx=15, pady=(2, 6))
 
         # Gauge 1: Generation Speed
         g1 = tk.Frame(gauge_row, bg="#0d1117", highlightbackground="#30363d", highlightthickness=1)
         g1.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
-        tk.Label(g1, text="GENERATION SPEED", font=("Segoe UI", 7, "bold"), fg=self.COLOR_MUTED, bg="#0d1117").pack(anchor="w", padx=10, pady=(6, 0))
-        self.lbl_inf_tps = tk.Label(g1, text="0.0 tok/s", font=("Consolas", 18, "bold"), fg=self.COLOR_CYAN, bg="#0d1117")
+        tk.Label(g1, text="GENERATION SPEED", font=("Segoe UI", 7, "bold"), fg=self.COLOR_MUTED, bg="#0d1117").pack(anchor="w", padx=10, pady=(4, 0))
+        self.lbl_inf_tps = tk.Label(g1, text="0.0 tok/s", font=("Consolas", 16, "bold"), fg=self.COLOR_CYAN, bg="#0d1117")
         self.lbl_inf_tps.pack(anchor="w", padx=10, pady=(0, 2))
         self.lbl_inf_ttft = tk.Label(g1, text="TTFT: --  |  Prompt Eval: --", font=("Segoe UI", 8), fg=self.COLOR_MUTED, bg="#0d1117")
-        self.lbl_inf_ttft.pack(anchor="w", padx=10, pady=(0, 6))
+        self.lbl_inf_ttft.pack(anchor="w", padx=10, pady=(0, 4))
 
         # Gauge 2: Tokens & Latency
         g2 = tk.Frame(gauge_row, bg="#0d1117", highlightbackground="#30363d", highlightthickness=1)
         g2.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(6, 0))
-        tk.Label(g2, text="TOKENS & LATENCY", font=("Segoe UI", 7, "bold"), fg=self.COLOR_MUTED, bg="#0d1117").pack(anchor="w", padx=10, pady=(6, 0))
-        self.lbl_inf_tokens = tk.Label(g2, text="0 tokens", font=("Consolas", 18, "bold"), fg=self.COLOR_TEXT, bg="#0d1117")
+        tk.Label(g2, text="TOKENS & LATENCY", font=("Segoe UI", 7, "bold"), fg=self.COLOR_MUTED, bg="#0d1117").pack(anchor="w", padx=10, pady=(4, 0))
+        self.lbl_inf_tokens = tk.Label(g2, text="0 tokens", font=("Consolas", 16, "bold"), fg=self.COLOR_TEXT, bg="#0d1117")
         self.lbl_inf_tokens.pack(anchor="w", padx=10, pady=(0, 2))
         self.lbl_inf_dur = tk.Label(g2, text="Total Duration: 0.0s", font=("Segoe UI", 8), fg=self.COLOR_MUTED, bg="#0d1117")
-        self.lbl_inf_dur.pack(anchor="w", padx=10, pady=(0, 6))
+        self.lbl_inf_dur.pack(anchor="w", padx=10, pady=(0, 4))
 
         # Streaming Text Output Box
         out_frame = tk.Frame(test_card, bg="#0d1117")
-        out_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 12))
+        out_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 6))
 
         self.inf_text_out = tk.Text(
             out_frame,
             bg="#0d1117",
             fg="#e6edf3",
-            font=("Consolas", 10),
+            font=("Consolas", 9),
             relief=tk.FLAT,
             wrap=tk.WORD,
-            height=8
+            height=5
         )
         self.inf_text_out.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        # 3. Speed Champions Recommendations Card
+        champions_card = tk.Frame(container, bg=self.COLOR_CARD, highlightbackground=self.COLOR_BORDER, highlightthickness=1)
+        champions_card.pack(fill=tk.X, pady=(6, 0))
+
+        champ_header = tk.Frame(champions_card, bg=self.COLOR_CARD)
+        champ_header.pack(fill=tk.X, padx=15, pady=(6, 2))
+
+        tk.Label(
+            champ_header,
+            text="⚡ ULTRA-FAST SPEED CHAMPIONS (Recommended Models for Instant Conversational Flow)",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.COLOR_CYAN,
+            bg=self.COLOR_CARD
+        ).pack(side=tk.LEFT)
+
+        tk.Label(
+            champions_card,
+            text="💡 Heavy 4B–9B models are RAM bandwidth bound (~8–14 tok/s). For blazing fast 35 to 50+ tokens/second, pull these compact architectures:",
+            font=("Segoe UI", 7),
+            fg=self.COLOR_MUTED,
+            bg=self.COLOR_CARD
+        ).pack(anchor="w", padx=15, pady=(0, 4))
+
+        chips_row = tk.Frame(champions_card, bg=self.COLOR_CARD)
+        chips_row.pack(fill=tk.X, padx=15, pady=(0, 8))
+
+        champions_list = [
+            ("Llama 3.2 (1B)", "llama3.2:1b", "1.2 GB", "⚡ 35–50 tok/s", "Instant chat & reasoning"),
+            ("DeepSeek R1 (1.5B)", "deepseek-r1:1.5b", "1.1 GB", "⚡ 30–45 tok/s", "Fast reasoning & logic"),
+            ("Qwen 2.5 (1.5B)", "qwen2.5:1.5b", "1.0 GB", "⚡ 30–45 tok/s", "Top code & math benchmark"),
+            ("Llama 3.2 (3B)", "llama3.2:3b", "2.0 GB", "⚡ 20–30 tok/s", "Intelligence sweetspot")
+        ]
+
+        for title, model_id, sz, spd, desc in champions_list:
+            card = tk.Frame(chips_row, bg="#161b22", highlightbackground="#30363d", highlightthickness=1)
+            card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=3)
+
+            top = tk.Frame(card, bg="#161b22")
+            top.pack(fill=tk.X, padx=6, pady=(4, 1))
+            tk.Label(top, text=title, font=("Segoe UI", 8, "bold"), fg=self.COLOR_TEXT, bg="#161b22").pack(side=tk.LEFT)
+            tk.Label(top, text=spd, font=("Segoe UI", 7, "bold"), fg=self.COLOR_CYAN, bg="#161b22").pack(side=tk.RIGHT)
+
+            tk.Label(card, text=f"{sz} • {desc}", font=("Segoe UI", 7), fg=self.COLOR_MUTED, bg="#161b22").pack(anchor="w", padx=6, pady=(0, 4))
+
+            btn_qp = tk.Button(
+                card,
+                text="⚡ Quick Pull",
+                font=("Segoe UI", 8, "bold"),
+                bg="#1f3a4d",
+                fg=self.COLOR_CYAN,
+                activebackground=self.COLOR_CYAN,
+                activeforeground="#000000",
+                relief=tk.FLAT,
+                pady=1,
+                cursor="hand2",
+                command=lambda m=model_id: self._quick_pull_model(m)
+            )
+            btn_qp.pack(fill=tk.X, padx=6, pady=(0, 4))
 
     def _start_inference_test(self):
         model = self.inf_model_cb.get().strip()
@@ -952,13 +1158,20 @@ class BoosterApp(tk.Tk):
         if not prompt:
             return
 
+        ctx_val = 2048
+        if hasattr(self, "inf_ctx_var"):
+            try:
+                ctx_val = int(self.inf_ctx_var.get())
+            except Exception:
+                pass
+
         self.btn_inf_run.config(state=tk.DISABLED)
         self.inf_text_out.delete("1.0", tk.END)
-        self.inf_text_out.insert(tk.END, f"🚀 Executing boosted inference on {model}...\n\n")
+        self.inf_text_out.insert(tk.END, f"🚀 Executing boosted inference on {model} (context: {ctx_val})...\n\n")
 
         def run():
             try:
-                stream = self.runtime_booster.generate_boosted_stream(model, prompt)
+                stream = self.runtime_booster.generate_boosted_stream(model, prompt, num_ctx=ctx_val)
                 for chunk in stream:
                     tok = chunk.get("token", "")
                     tps = chunk.get("current_tps", 0.0)

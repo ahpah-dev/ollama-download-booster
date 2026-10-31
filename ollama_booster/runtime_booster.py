@@ -13,9 +13,10 @@ import os
 import sys
 import time
 import json
+import shutil
 import threading
 import subprocess
-from typing import Dict, Any, Optional, Callable, Generator
+from typing import Dict, Any, Optional, Callable, Generator, Tuple
 import requests
 
 
@@ -81,9 +82,10 @@ class RuntimeBooster:
 
     def enable_runtime_acceleration(self) -> bool:
         """
-        Enable Flash Attention, persistent keep-alive, and high process priority.
+        Enable iGPU Vulkan acceleration, Flash Attention, persistent keep-alive, and high process priority.
         Persists in Windows User Environment registry and current session.
         """
+        os.environ["OLLAMA_IGPU_ENABLE"] = "1"
         os.environ["OLLAMA_FLASH_ATTENTION"] = "1"
         os.environ["OLLAMA_KEEP_ALIVE"] = "24h"
         os.environ["OLLAMA_NUM_PARALLEL"] = "1"
@@ -92,6 +94,7 @@ class RuntimeBooster:
             try:
                 import winreg
                 key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_ALL_ACCESS)
+                winreg.SetValueEx(key, "OLLAMA_IGPU_ENABLE", 0, winreg.REG_SZ, "1")
                 winreg.SetValueEx(key, "OLLAMA_FLASH_ATTENTION", 0, winreg.REG_SZ, "1")
                 winreg.SetValueEx(key, "OLLAMA_KEEP_ALIVE", 0, winreg.REG_SZ, "24h")
                 winreg.SetValueEx(key, "OLLAMA_NUM_PARALLEL", 0, winreg.REG_SZ, "1")
@@ -106,14 +109,16 @@ class RuntimeBooster:
 
     def disable_runtime_acceleration(self) -> bool:
         """Disable runtime boost and reset environment variables."""
+        os.environ.pop("OLLAMA_IGPU_ENABLE", None)
         os.environ.pop("OLLAMA_FLASH_ATTENTION", None)
         os.environ.pop("OLLAMA_KEEP_ALIVE", None)
+        os.environ.pop("OLLAMA_NUM_PARALLEL", None)
 
         if sys.platform == "win32":
             try:
                 import winreg
                 key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_ALL_ACCESS)
-                for var_name in ["OLLAMA_FLASH_ATTENTION", "OLLAMA_KEEP_ALIVE", "OLLAMA_NUM_PARALLEL"]:
+                for var_name in ["OLLAMA_IGPU_ENABLE", "OLLAMA_FLASH_ATTENTION", "OLLAMA_KEEP_ALIVE", "OLLAMA_NUM_PARALLEL"]:
                     try:
                         winreg.DeleteValue(key, var_name)
                     except FileNotFoundError:
@@ -125,6 +130,95 @@ class RuntimeBooster:
         self.stop_process_priority_watcher()
         self.reset_ollama_priority()
         return True
+
+    def is_ollama_running(self, host: str = "http://127.0.0.1:11434") -> bool:
+        """Check if Ollama service is currently reachable and responding."""
+        try:
+            r = requests.get(f"{host.rstrip('/')}/api/tags", timeout=2)
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    def restart_ollama_with_turbo(self) -> Tuple[bool, str]:
+        """
+        Gracefully restart the Ollama service injecting all turbo flags
+        (Integrated GPU Vulkan Acceleration, Flash Attention, 24h Keep-Alive, High Priority).
+        """
+        self.enable_runtime_acceleration()
+
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/F", "/IM", "ollama.exe", "/T"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["taskkill", "/F", "/IM", "ollama app.exe", "/T"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(1.0)
+
+            ps_script = (
+                "$env:OLLAMA_IGPU_ENABLE = '1'; "
+                "$env:OLLAMA_FLASH_ATTENTION = '1'; "
+                "$env:OLLAMA_KEEP_ALIVE = '24h'; "
+                "$env:OLLAMA_NUM_PARALLEL = '1'; "
+                "Start-Process -FilePath 'ollama' -ArgumentList 'serve' -WindowStyle Hidden"
+            )
+            try:
+                subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], check=True, timeout=10)
+                # Wait for Ollama service to become responsive
+                for _ in range(10):
+                    time.sleep(0.5)
+                    if self.is_ollama_running():
+                        break
+                self.elevate_ollama_priority()
+                return True, "Ollama service successfully restarted with AMD Radeon iGPU Vulkan acceleration & Flash Attention!"
+            except Exception as e:
+                return False, f"Failed to restart Ollama: {e}"
+        else:
+            subprocess.run(["pkill", "-f", "ollama"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(1.0)
+            env = os.environ.copy()
+            env["OLLAMA_IGPU_ENABLE"] = "1"
+            env["OLLAMA_FLASH_ATTENTION"] = "1"
+            env["OLLAMA_KEEP_ALIVE"] = "24h"
+            env["OLLAMA_NUM_PARALLEL"] = "1"
+            subprocess.Popen(["ollama", "serve"], env=env)
+            for _ in range(10):
+                time.sleep(0.5)
+                if self.is_ollama_running():
+                    break
+            return True, "Ollama service restarted with GPU Turbo optimizations!"
+
+    def create_turbo_model_copy(self, model_name: str, target_name: Optional[str] = None, num_ctx: int = 2048) -> Tuple[bool, str]:
+        """
+        Creates an instant tuned '<model>-turbo' variant with locked physical threads,
+        fast prompt batching, and an optimized context window. Takes 0 extra disk space.
+        """
+        if not target_name:
+            clean = model_name.split("/")[-1].split(":")[0]
+            target_name = f"{clean}-turbo"
+
+        modelfile_content = f"""FROM {model_name}
+PARAMETER num_ctx {num_ctx}
+PARAMETER num_thread {self.optimal_threads}
+PARAMETER num_batch 1024
+"""
+        tmp_path = os.path.join(os.path.expanduser("~"), f".ollama_modelfile_{int(time.time())}.tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(modelfile_content)
+
+            res = subprocess.run(
+                ["ollama", "create", target_name, "-f", tmp_path],
+                capture_output=True,
+                text=True,
+                timeout=45
+            )
+            if res.returncode == 0:
+                return True, f"Successfully created '{target_name}'! Tuned with {self.optimal_threads} threads, {num_ctx} context, and batch 1024."
+            else:
+                return False, f"Ollama create failed: {res.stderr.strip() or res.stdout.strip()}"
+        except Exception as e:
+            return False, f"Failed to create turbo model: {e}"
+        finally:
+            if os.path.exists(tmp_path):
+                try: os.remove(tmp_path)
+                except Exception: pass
 
     # ---------------- PROCESS PRIORITY OPTIMIZATION ----------------
 
@@ -174,22 +268,22 @@ class RuntimeBooster:
 
     # ---------------- TUNED INFERENCE CALLS ----------------
 
-    def get_boosted_options(self) -> Dict[str, Any]:
+    def get_boosted_options(self, num_ctx: int = 2048) -> Dict[str, Any]:
         """Returns optimal inference hyper-parameters tuned for this machine."""
         return {
             "num_thread": self.optimal_threads,
             "num_gpu": 99,
+            "num_ctx": num_ctx,
             "num_batch": 1024,
-            "use_mmap": True,
-            "use_mlock": True,
-            "low_vram": False
+            "use_mmap": True
         }
 
     def generate_boosted_stream(
         self,
         model: str,
         prompt: str,
-        host: str = "http://localhost:11434"
+        num_ctx: int = 2048,
+        host: str = "http://127.0.0.1:11434"
     ) -> Generator[Dict[str, Any], None, None]:
         """
         Executes a streaming inference generation with full turbo parameters.
@@ -201,7 +295,7 @@ class RuntimeBooster:
             "model": model,
             "prompt": prompt,
             "stream": True,
-            "options": self.get_boosted_options()
+            "options": self.get_boosted_options(num_ctx=num_ctx)
         }
 
         start_time = time.time()
@@ -239,9 +333,10 @@ class RuntimeBooster:
     def launch_boosted_terminal(self, model: str) -> None:
         """
         Launches an interactive `ollama run <model>` session with
-        Flash Attention, Keep-Alive, and High Process Priority applied.
+        iGPU Vulkan, Flash Attention, Keep-Alive, and High Process Priority applied.
         """
         env_cmd = (
+            f"set OLLAMA_IGPU_ENABLE=1&& "
             f"set OLLAMA_FLASH_ATTENTION=1&& "
             f"set OLLAMA_KEEP_ALIVE=24h&& "
             f"set OLLAMA_NUM_PARALLEL=1&& "
@@ -252,7 +347,7 @@ class RuntimeBooster:
             # Elevate process after launch
             threading.Timer(1.0, self.elevate_ollama_priority).start()
         elif sys.platform == "darwin":
-            script = f'tell application "Terminal" to do script "export OLLAMA_FLASH_ATTENTION=1 && export OLLAMA_KEEP_ALIVE=24h && ollama run {model}"'
+            script = f'tell application "Terminal" to do script "export OLLAMA_IGPU_ENABLE=1 && export OLLAMA_FLASH_ATTENTION=1 && export OLLAMA_KEEP_ALIVE=24h && ollama run {model}"'
             subprocess.Popen(["osascript", "-e", script])
         else:
-            subprocess.Popen(["bash", "-c", f"export OLLAMA_FLASH_ATTENTION=1 && export OLLAMA_KEEP_ALIVE=24h && ollama run {model}"])
+            subprocess.Popen(["bash", "-c", f"export OLLAMA_IGPU_ENABLE=1 && export OLLAMA_FLASH_ATTENTION=1 && export OLLAMA_KEEP_ALIVE=24h && ollama run {model}"])

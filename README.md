@@ -20,6 +20,9 @@ Ollama Download Booster doesn't just accelerate downloads—it also includes a *
 ┌────────────────────────────────────────────────────────────────────────┐
 │                   ⚡ INFERENCE ACCELERATION ENGINE                     │
 ├───────────────────────────────┬────────────────────────────────────────┤
+│ 🎮 AMD Radeon iGPU Vulkan     │ OLLAMA_IGPU_ENABLE=1 (unlocks Vulkan   │
+│    Hardware Offload           │ layer offloading on integrated GPUs)   │
+├───────────────────────────────┼────────────────────────────────────────┤
 │ 🚀 Flash Attention            │ OLLAMA_FLASH_ATTENTION=1 (up to +40%   │
 │                               │ generation throughput and less VRAM)   │
 ├───────────────────────────────┼────────────────────────────────────────┤
@@ -32,24 +35,48 @@ Ollama Download Booster doesn't just accelerate downloads—it also includes a *
 │ 🏎️ High Process Priority      │ Elevates Ollama runners to High        │
 │                               │ Priority (eliminates Windows stutter)  │
 ├───────────────────────────────┼────────────────────────────────────────┤
+│ ⚡ Instant -turbo Profiles    │ Creates tuned model copies with 2048   │
+│                               │ context and batch 1024 (0 extra disk)  │
+├───────────────────────────────┼────────────────────────────────────────┤
 │ 📦 Fast Prompt Batching       │ num_batch=1024 for minimal Time-To-    │
 │                               │ First-Token (TTFT)                     │
 └───────────────────────────────┴────────────────────────────────────────┘
 ```
 
 ### Turn On Runtime Booster
-- **In Desktop GUI:** Click **`🚀 INFERENCE: ACTIVE`** in the header banner or switch it on inside the **`🚀 Inference Turbo`** tab.
+- **In Desktop GUI:**
+  - Click **`🚀 INFERENCE: ACTIVE`** in the header banner or switch it on inside the **`🚀 Inference Turbo`** tab.
+  - Click **`🔄 Apply & Restart Ollama with Turbo`** to ensure running Ollama background daemons load the new Vulkan GPU and Flash Attention flags.
+  - Select any installed model and click **`⚡ Create -turbo Copy`** to generate an optimized variant in 1 second!
 - **In CLI:**
   ```bash
   # Enable persistent inference acceleration
   python main.py boost-runtime on
 
+  # Restart Ollama daemon with GPU Vulkan + Flash Attention injected
+  python main.py restart-turbo
+
+  # Create an instant tuned model variant (0 duplicate disk space)
+  python main.py create-turbo llama3.2:1b
+
   # Launch an accelerated model session
-  python main.py run-boosted llama3.2
+  python main.py run-boosted llama3.2:1b-turbo
 
   # Live benchmark generation speed (tok/s)
-  python main.py bench-inference llama3.2
+  python main.py bench-inference llama3.2:1b-turbo
   ```
+
+---
+
+### ⚡ Ultra-Fast Model Recommendations ("Speed Champions")
+On CPU & Integrated APU hardware (like AMD Ryzen 6000/7000/8000 APUs), token generation speed is physically bound by system RAM bandwidth (~40–50 GB/s DDR5). Heavy 4B–9B models run at ~8–14 tok/s.
+For a dramatic, night-and-day speed leap to **35 to 65+ tokens/second**, use compact optimized architectures:
+- **`llama3.2:1b` (1.2 GB)**: ⚡ **35–50+ tok/s** — Instant conversational chat & reasoning.
+- **`deepseek-r1:1.5b` (1.1 GB)**: ⚡ **30–45+ tok/s** — State-of-the-art fast reasoning model.
+- **`qwen2.5:1.5b` (1.0 GB)**: ⚡ **30–45+ tok/s** — Exceptional coding & mathematics benchmark.
+- **`llama3.2:3b` (2.0 GB)**: ⚡ **20–30 tok/s** — Sweetspot between intelligence and speed.
+
+> **Note on `lfm3`:** Liquid AI's `lfm3` architecture uses a proprietary 1-D convolution neural ODE design that is not a standard transformer and is not currently supported by Ollama's underlying `llama.cpp` engine (`unknown model architecture: 'lfm3'`). Use `llama3.2:1b` or `qwen2.5:1.5b` for ultra-fast compact inference.
 
 ---
 

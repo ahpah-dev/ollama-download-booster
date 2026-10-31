@@ -19,14 +19,21 @@ class TestRuntimeBooster(unittest.TestCase):
         self.assertEqual(threads, self.booster.physical_cores)
 
     def test_boosted_options(self):
-        opts = self.booster.get_boosted_options()
+        opts = self.booster.get_boosted_options(num_ctx=2048)
         self.assertIn("num_thread", opts)
         self.assertIn("num_gpu", opts)
         self.assertIn("num_batch", opts)
+        self.assertIn("num_ctx", opts)
         self.assertIn("use_mmap", opts)
         self.assertEqual(opts["num_batch"], 1024)
+        self.assertEqual(opts["num_ctx"], 2048)
         self.assertEqual(opts["num_gpu"], 99)
         self.assertTrue(opts["use_mmap"])
+
+    def test_is_ollama_running(self):
+        # Service running check returns a boolean
+        status = self.booster.is_ollama_running()
+        self.assertIsInstance(status, bool)
 
 
 if __name__ == "__main__":

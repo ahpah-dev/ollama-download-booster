@@ -236,6 +236,34 @@ def cmd_boost_runtime(args):
         print(f"\n{BOLD}Any new or running Ollama models will now run accelerated.{RESET}\n")
 
 
+def cmd_restart_turbo(args):
+    from .runtime_booster import RuntimeBooster
+    print_banner()
+    rb = RuntimeBooster()
+    print("Restarting Ollama service with GPU Vulkan, Flash Attention, and Keep-Alive...")
+    ok, msg = rb.restart_ollama_with_turbo()
+    if ok:
+        print(f"{GREEN}{BOLD}[*] {msg}{RESET}\n")
+    else:
+        print(f"{RED}[!] {msg}{RESET}\n")
+
+
+def cmd_create_turbo(args):
+    from .runtime_booster import RuntimeBooster
+    print_banner()
+    rb = RuntimeBooster()
+    model = args.model
+    ctx = args.context or 2048
+    print(f"Creating tuned '-turbo' profile for {CYAN}{model}{RESET} (ctx: {ctx})...")
+    ok, msg = rb.create_turbo_model_copy(model, num_ctx=ctx)
+    if ok:
+        print(f"{GREEN}{BOLD}[*] {msg}{RESET}")
+        clean = model.split('/')[-1].split(':')[0]
+        print(f"Test your newly tuned model with: {CYAN}ollama run {clean}-turbo{RESET}\n")
+    else:
+        print(f"{RED}[!] {msg}{RESET}\n")
+
+
 def cmd_run_boosted(args):
     from .runtime_booster import RuntimeBooster
     print_banner()
@@ -314,6 +342,14 @@ def cli_main():
     rt_parser = subparsers.add_parser("boost-runtime", help="Enable or disable persistent inference speed acceleration")
     rt_parser.add_argument("action", nargs="?", choices=["on", "off"], default="on", help="Enable (on) or disable (off)")
 
+    # restart-turbo
+    subparsers.add_parser("restart-turbo", help="Restart Ollama service with GPU Vulkan, Flash Attention, and Keep-Alive")
+
+    # create-turbo
+    create_parser = subparsers.add_parser("create-turbo", help="Create an instant tuned '<model>-turbo' variant")
+    create_parser.add_argument("model", help="Source model name")
+    create_parser.add_argument("-c", "--context", type=int, default=2048, help="Context size (default: 2048)")
+
     # run-boosted
     run_parser = subparsers.add_parser("run-boosted", help="Launch an interactive model session with runtime acceleration")
     run_parser.add_argument("model", help="Model name to run")
@@ -335,6 +371,10 @@ def cli_main():
         cmd_proxy(args)
     elif args.command == "boost-runtime":
         cmd_boost_runtime(args)
+    elif args.command == "restart-turbo":
+        cmd_restart_turbo(args)
+    elif args.command == "create-turbo":
+        cmd_create_turbo(args)
     elif args.command == "run-boosted":
         cmd_run_boosted(args)
     elif args.command == "bench-inference":
