@@ -1554,8 +1554,8 @@ class BoosterApp(ctk.CTk):
             self.btn_cancel.configure(state="disabled")
 
     def _update_progress_ui(self, p: Dict[str, Any]):
-        done = p.get("completed_bytes", 0)
-        tot = p.get("total_bytes", 1)
+        done = p.get("completed_bytes", p.get("total_downloaded", 0))
+        tot = p.get("total_bytes", p.get("overall_total", 1))
         speed = p.get("speed_mb", 0.0)
         peak = p.get("peak_speed_mb", 0.0)
         eta = p.get("eta_seconds", 0.0)

@@ -150,6 +150,19 @@ class BoosterEngine:
         else:
             log("[+] All layers already verified in local Ollama storage!")
 
+        # Initial progress snapshot so UI immediately reflects total size and cached bytes
+        if progress_callback:
+            progress_callback({
+                "total_downloaded": self.total_downloaded,
+                "completed_bytes": self.total_downloaded,
+                "overall_total": self.overall_total,
+                "total_bytes": self.overall_total,
+                "speed_mb": 0.0,
+                "peak_speed_mb": 0.0,
+                "eta_seconds": 0.0,
+                "thread_states": {}
+            })
+
         # Download pending blobs
         for i, (digest, size, ltype) in enumerate(pending_blobs):
             if self._cancelled.is_set():
@@ -240,12 +253,19 @@ class BoosterEngine:
                             f.write(chunk)
                             speed = self._update_speed(len(chunk))
                             if progress_callback:
+                                eta = 0.0
+                                rem = max(0, self.overall_total - self.total_downloaded)
+                                if speed > 0:
+                                    eta = rem / (speed * 1024 * 1024)
                                 progress_callback({
                                     "total_downloaded": self.total_downloaded,
+                                    "completed_bytes": self.total_downloaded,
                                     "overall_total": self.overall_total,
+                                    "total_bytes": self.overall_total,
                                     "speed_mb": speed,
                                     "peak_speed_mb": self.peak_speed_mb,
-                                    "thread_states": {}
+                                    "eta_seconds": eta,
+                                    "thread_states": {0: {"active": True, "done": self.total_downloaded}}
                                 })
 
             # Atomic rename
@@ -360,7 +380,9 @@ class BoosterEngine:
                                             eta = rem / (speed * 1024 * 1024)
                                         progress_callback({
                                             "total_downloaded": self.total_downloaded,
+                                            "completed_bytes": self.total_downloaded,
                                             "overall_total": self.overall_total,
+                                            "total_bytes": self.overall_total,
                                             "speed_mb": speed,
                                             "peak_speed_mb": self.peak_speed_mb,
                                             "eta_seconds": eta,
