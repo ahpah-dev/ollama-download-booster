@@ -2222,7 +2222,7 @@ class BoosterApp(ctk.CTk):
 
         ctk.CTkLabel(
             hdr,
-            text=f"Model: {model_ref}\nThis model repository is gated or requires a valid Hugging Face Access Token.",
+            text=f"Model: {model_ref}\nPublic Hugging Face models work with ZERO tokens. If this is a public model, check for typos in the name. If it is gated or private, accept the terms and connect your token below.",
             font=("Segoe UI", 10),
             text_color=self.COLOR_TEXT_MUTED,
             justify="left"

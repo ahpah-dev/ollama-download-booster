@@ -284,10 +284,12 @@ class RegistryClient:
                 elif response.status_code in (401, 403):
                     if reg == "hf.co":
                         raise PermissionError(
-                            f"Access unauthorized for Hugging Face model '{model_ref}' (HTTP {response.status_code}).\n"
-                            f"• If this model is gated (like LiquidAI/LFM, Meta-Llama), accept the license agreement at:\n"
+                            f"Could not access Hugging Face model '{model_ref}' (HTTP {response.status_code}).\n\n"
+                            f"• Public Hugging Face models require ZERO tokens! Check for typos in the user/repo name or quantization tag.\n"
+                            f"• Hugging Face returns 401 when a repo does not exist to avoid leaking private repo names.\n"
+                            f"• If this model is gated (such as Meta-Llama or Gemma), accept the license agreement at:\n"
                             f"  https://huggingface.co/{ns}/{model}\n"
-                            f"• Then configure your Hugging Face Access Token in the app settings or via export HF_TOKEN=hf_..."
+                            f"  and connect your free Hugging Face token in Settings."
                         )
                     else:
                         raise PermissionError(
