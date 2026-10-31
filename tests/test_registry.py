@@ -47,6 +47,34 @@ class TestRegistryClient(unittest.TestCase):
         self.assertEqual(model, "Llama-3.2-1B-Instruct-GGUF")
         self.assertEqual(tag, "Q4_K_M")
 
+    def test_is_valid_hf_token(self):
+        from ollama_booster.registry_client import is_valid_hf_token
+        self.assertTrue(is_valid_hf_token("hf_abcdefghijklmnopqrstuvwxyz123456"))
+        self.assertTrue(is_valid_hf_token("  hf_abcdefghijklmnopqrstuvwxyz123456  "))
+        self.assertFalse(is_valid_hf_token(None))
+        self.assertFalse(is_valid_hf_token(""))
+        self.assertFalse(is_valid_hf_token("not_a_token"))
+        self.assertFalse(is_valid_hf_token("hf_short"))
+        self.assertFalse(is_valid_hf_token("hf.co/XHToken/Spark-X2.6-4B-DS"))
+
+    def test_extract_hf_token(self):
+        from ollama_booster.registry_client import extract_hf_token
+        raw = "Here is my token: hf_0123456789abcdefghijklmnopqrstuv and use it!"
+        self.assertEqual(extract_hf_token(raw), "hf_0123456789abcdefghijklmnopqrstuv")
+        self.assertIsNone(extract_hf_token("no token here at all"))
+        self.assertIsNone(extract_hf_token("hf.co/user/repo"))
+
+    def test_token_save_and_retrieve_env(self):
+        import os
+        from ollama_booster.registry_client import get_hf_token, save_hf_token
+        test_tok = "hf_testtoken1234567890abcdefghijklm"
+        save_hf_token(test_tok)
+        self.assertEqual(os.environ.get("HF_TOKEN"), test_tok)
+        self.assertEqual(get_hf_token(), test_tok)
+        # Clear it
+        save_hf_token("")
+        self.assertNotIn("HF_TOKEN", os.environ)
+
 
 if __name__ == "__main__":
     unittest.main()

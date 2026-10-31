@@ -110,54 +110,157 @@ class RegistryClient:
         return registry, namespace, model, tag
 
     @staticmethod
+    def is_valid_hf_token(token: Optional[str]) -> bool:
+        """Validate if a string conforms to Hugging Face Access Token syntax."""
+        import re
+        if not token or not isinstance(token, str):
+            return False
+        cleaned = token.strip()
+        return bool(re.match(r"^hf_[A-Za-z0-9_]{20,}$", cleaned))
+
+    @staticmethod
+    def extract_hf_token(text: Optional[str]) -> Optional[str]:
+        """Extract a valid Hugging Face token from any arbitrary text or clipboard content."""
+        import re
+        if not text or not isinstance(text, str):
+            return None
+        match = re.search(r"\b(hf_[A-Za-z0-9_]{20,})\b", text.strip())
+        if match:
+            candidate = match.group(1).strip()
+            if RegistryClient.is_valid_hf_token(candidate):
+                return candidate
+        return None
+
+    @staticmethod
     def get_hf_token() -> Optional[str]:
-        """Find Hugging Face token from environment, cache, or booster config."""
-        token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
-        if token:
-            return token.strip()
-        cache_path = os.path.expanduser("~/.cache/huggingface/token")
-        if os.path.isfile(cache_path):
+        """
+        Auto-discovers Hugging Face token across multiple system locations:
+        1. Process Environment: HF_TOKEN, HUGGING_FACE_HUB_TOKEN
+        2. Hugging Face CLI / Cache: ~/.cache/huggingface/token, ~/.huggingface/token
+        3. Windows Registry: HKCU\\Environment\\HF_TOKEN
+        4. Booster Configuration: ~/.ollama/booster_config.json
+        5. huggingface_hub library get_token() (if installed)
+        """
+        # 1. Environment variables
+        for env_var in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+            val = os.getenv(env_var)
+            if val and RegistryClient.is_valid_hf_token(val):
+                return val.strip()
+
+        # 2. Hugging Face standard cache paths
+        for path in ("~/.cache/huggingface/token", "~/.huggingface/token"):
+            p = os.path.expanduser(path)
+            if os.path.isfile(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        val = f.read().strip()
+                        if RegistryClient.is_valid_hf_token(val):
+                            return val
+                except Exception:
+                    pass
+
+        # 3. Windows Registry (HKCU\Environment\HF_TOKEN)
+        if os.name == "nt":
             try:
-                with open(cache_path, "r", encoding="utf-8") as f:
-                    t = f.read().strip()
-                    if t:
-                        return t
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_READ) as key:
+                    val, _ = winreg.QueryValueEx(key, "HF_TOKEN")
+                    if val and RegistryClient.is_valid_hf_token(val):
+                        return val.strip()
             except Exception:
                 pass
+
+        # 4. Ollama Booster config file
         config_path = os.path.expanduser("~/.ollama/booster_config.json")
         if os.path.isfile(config_path):
             try:
-                import json
                 with open(config_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
-                    return cfg.get("hf_token", "").strip() or None
+                    val = cfg.get("hf_token", "")
+                    if val and RegistryClient.is_valid_hf_token(val):
+                        return val.strip()
             except Exception:
                 pass
+
+        # 5. huggingface_hub library
+        try:
+            from huggingface_hub import get_token as hf_get_token
+            tok = hf_get_token()
+            if tok and RegistryClient.is_valid_hf_token(tok):
+                return tok.strip()
+        except Exception:
+            pass
+
         return None
 
     @staticmethod
     def save_hf_token(token: str) -> None:
-        """Saves Hugging Face token to ~/.ollama/booster_config.json and session env."""
+        """
+        Persists Hugging Face token simultaneously to:
+        1. Process Environment (HF_TOKEN)
+        2. Booster Config (~/.ollama/booster_config.json)
+        3. Hugging Face Cache (~/.cache/huggingface/token)
+        4. Windows User Registry (HKCU\\Environment\\HF_TOKEN)
+        """
+        cleaned = token.strip() if token else ""
+
+        # 1. Environment
+        if cleaned:
+            os.environ["HF_TOKEN"] = cleaned
+        else:
+            os.environ.pop("HF_TOKEN", None)
+
+        # 2. Booster Config
         config_dir = os.path.expanduser("~/.ollama")
         os.makedirs(config_dir, exist_ok=True)
         config_path = os.path.join(config_dir, "booster_config.json")
         cfg = {}
         if os.path.isfile(config_path):
             try:
-                import json
                 with open(config_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
             except Exception:
                 cfg = {}
-        cfg["hf_token"] = token.strip()
+        if cleaned:
+            cfg["hf_token"] = cleaned
+        else:
+            cfg.pop("hf_token", None)
         try:
-            import json
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)
         except Exception:
             pass
-        if token.strip():
-            os.environ["HF_TOKEN"] = token.strip()
+
+        # 3. Standard Hugging Face Cache Directory
+        try:
+            hf_cache_dir = os.path.expanduser("~/.cache/huggingface")
+            os.makedirs(hf_cache_dir, exist_ok=True)
+            hf_token_file = os.path.join(hf_cache_dir, "token")
+            if cleaned:
+                with open(hf_token_file, "w", encoding="utf-8") as f:
+                    f.write(cleaned)
+            elif os.path.exists(hf_token_file):
+                try:
+                    os.remove(hf_token_file)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # 4. Windows Registry Persistence
+        if os.name == "nt":
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment", 0, winreg.KEY_SET_VALUE) as key:
+                    if cleaned:
+                        winreg.SetValueEx(key, "HF_TOKEN", 0, winreg.REG_SZ, cleaned)
+                    else:
+                        try:
+                            winreg.DeleteValue(key, "HF_TOKEN")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
     def fetch_manifest(self, model_ref: str) -> Tuple[Dict[str, Any], Tuple[str, str, str, str]]:
         """
@@ -251,6 +354,16 @@ class RegistryClient:
             "other_layers": other_layers,
             "config": manifest.get("config", {})
         }
+
+
+def is_valid_hf_token(token: Optional[str]) -> bool:
+    """Helper module-level function to check if a token has valid HF syntax."""
+    return RegistryClient.is_valid_hf_token(token)
+
+
+def extract_hf_token(text: Optional[str]) -> Optional[str]:
+    """Helper module-level function to extract HF token from text."""
+    return RegistryClient.extract_hf_token(text)
 
 
 def get_hf_token() -> Optional[str]:

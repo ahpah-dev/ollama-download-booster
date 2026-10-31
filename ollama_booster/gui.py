@@ -9,6 +9,7 @@ import sys
 import time
 import shutil
 import threading
+import webbrowser
 from typing import Optional, Dict, Any, List
 import tkinter as tk
 from tkinter import messagebox
@@ -19,7 +20,13 @@ from .booster_engine import BoosterEngine
 from .models_manager import OllamaManager
 from .proxy_server import BoosterProxyServer
 from .runtime_booster import RuntimeBooster
-from .registry_client import RegistryClient, get_hf_token, save_hf_token
+from .registry_client import (
+    RegistryClient,
+    get_hf_token,
+    save_hf_token,
+    is_valid_hf_token,
+    extract_hf_token,
+)
 
 
 # Set CustomTkinter global appearance
@@ -86,6 +93,9 @@ class BoosterApp(ctk.CTk):
         self.search_model_var = ctk.StringVar()
         self.search_model_var.trace_add("write", lambda *args: self._filter_model_cards())
 
+        # Hugging Face Authentication Token State
+        self.hf_token_var = ctk.StringVar(value=get_hf_token() or "")
+
         self.is_downloading = False
         self.download_thread: Optional[threading.Thread] = None
 
@@ -109,6 +119,10 @@ class BoosterApp(ctk.CTk):
         # Initialize Data
         self._refresh_installed_models()
         self._start_service_poller()
+
+        # Automatic HF Token Discovery on startup & window focus
+        self.after(500, lambda: self._check_clipboard_for_token(silent_if_same=True))
+        self.bind("<FocusIn>", lambda e: self._check_clipboard_for_token(silent_if_same=True))
 
     # =========================================================================
     # SIDEBAR NAVIGATION & TELEMETRY
@@ -469,6 +483,35 @@ class BoosterApp(ctk.CTk):
             command=self._show_hf_guide_dialog
         )
         btn_hf_help.pack(side="right")
+
+        # Hugging Face Token Quick Status & Connect Strip
+        hf_token_strip = ctk.CTkFrame(ctrl_card, fg_color=self.COLOR_BG_DARK, corner_radius=6)
+        hf_token_strip.pack(fill="x", padx=16, pady=(0, 10))
+
+        tok_val = (self.hf_token_var.get() or "").strip()
+        has_tok = bool(tok_val and is_valid_hf_token(tok_val))
+        masked_tok = f"{tok_val[:4]}••••••••{tok_val[-4:]}" if has_tok and len(tok_val) >= 12 else ""
+
+        self.lbl_pull_hf_status = ctk.CTkLabel(
+            hf_token_strip,
+            text=f"🟢 HF Token Active ({masked_tok}) • Gated models enabled" if has_tok else "⚪ HF Token: None (Gated models require token)",
+            font=("Segoe UI", 9),
+            text_color=self.COLOR_GREEN if has_tok else self.COLOR_TEXT_MUTED
+        )
+        self.lbl_pull_hf_status.pack(side="left", padx=10, pady=6)
+
+        self.btn_pull_hf_connect = ctk.CTkButton(
+            hf_token_strip,
+            text="🔄 Change Token" if has_tok else "🚀 1-Click Connect Token",
+            font=("Segoe UI", 8, "bold"),
+            fg_color=self.COLOR_CARD_ALT,
+            hover_color=self.COLOR_CARD_HOVER,
+            text_color=self.COLOR_CYAN,
+            height=24,
+            corner_radius=4,
+            command=self._start_hf_auto_connect
+        )
+        self.btn_pull_hf_connect.pack(side="right", padx=8, pady=4)
 
         # Concurrency & Acceleration Bar
         concurrency_row = ctk.CTkFrame(ctrl_card, fg_color="transparent")
@@ -1279,12 +1322,92 @@ class BoosterApp(ctk.CTk):
             text="Allows pulling gated models and private repositories directly via hf.co/... references without 401 Unauthorized errors.",
             font=("Segoe UI", 9),
             text_color=self.COLOR_TEXT_MUTED
-        ).pack(anchor="w", pady=(2, 10))
+        ).pack(anchor="w", pady=(2, 8))
+
+        # Status badge label
+        tok_val = (self.hf_token_var.get() or "").strip()
+        has_tok = bool(tok_val and is_valid_hf_token(tok_val))
+        masked_tok = f"{tok_val[:4]}••••••••{tok_val[-4:]}" if has_tok and len(tok_val) >= 12 else ""
+
+        self.lbl_settings_hf_status = ctk.CTkLabel(
+            hf_inner,
+            text=f"🟢 Active Token: {masked_tok}  •  Synced to System Environment, Registry & Cache" if has_tok else "⚪ No Token Configured — Gated models require an access token",
+            font=("Segoe UI", 9, "bold" if has_tok else "normal"),
+            text_color=self.COLOR_GREEN if has_tok else self.COLOR_TEXT_MUTED
+        )
+        self.lbl_settings_hf_status.pack(anchor="w", pady=(0, 10))
+
+        # 1-Click Auto-Connect Box
+        auto_box = ctk.CTkFrame(hf_inner, fg_color=self.COLOR_BG_DARK, border_width=1, border_color=self.COLOR_BORDER, corner_radius=8)
+        auto_box.pack(fill="x", pady=(0, 12))
+
+        auto_box_inner = ctk.CTkFrame(auto_box, fg_color="transparent")
+        auto_box_inner.pack(fill="x", padx=14, pady=12)
+
+        ctk.CTkLabel(
+            auto_box_inner,
+            text="⚡ 1-Click Auto-Connect (Zero Typing Needed)",
+            font=("Segoe UI", 10, "bold"),
+            text_color=self.COLOR_CYAN
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            auto_box_inner,
+            text="Opens Hugging Face in your browser with 'read' token pre-filled. Simply copy the token, and this app will auto-detect from your clipboard, save, and activate it permanently!",
+            font=("Segoe UI", 9),
+            text_color=self.COLOR_TEXT_MUTED,
+            wraplength=680,
+            justify="left"
+        ).pack(anchor="w", pady=(2, 8))
+
+        btn_row_auto = ctk.CTkFrame(auto_box_inner, fg_color="transparent")
+        btn_row_auto.pack(fill="x")
+
+        btn_auto_connect = ctk.CTkButton(
+            btn_row_auto,
+            text="🚀 1-Click Connect Hugging Face Token",
+            font=("Segoe UI", 10, "bold"),
+            fg_color=self.COLOR_PURPLE,
+            hover_color="#7c3aed",
+            text_color="#ffffff",
+            height=34,
+            corner_radius=6,
+            command=self._start_hf_auto_connect
+        )
+        btn_auto_connect.pack(side="left", padx=(0, 10))
+
+        btn_paste_clip = ctk.CTkButton(
+            btn_row_auto,
+            text="📋 Paste & Apply from Clipboard",
+            font=("Segoe UI", 9),
+            fg_color=self.COLOR_CARD_ALT,
+            hover_color=self.COLOR_CARD_HOVER,
+            text_color=self.COLOR_TEXT_MAIN,
+            height=34,
+            corner_radius=6,
+            command=lambda: self._check_clipboard_for_token(force=True)
+        )
+        btn_paste_clip.pack(side="left")
+
+        self.lbl_hf_listen_status = ctk.CTkLabel(
+            auto_box_inner,
+            text="",
+            font=("Segoe UI", 9),
+            text_color=self.COLOR_CYAN
+        )
+        self.lbl_hf_listen_status.pack(anchor="w", pady=(6, 0))
+
+        # Manual Entry Row
+        ctk.CTkLabel(
+            hf_inner,
+            text="Or Enter / Edit Token Manually:",
+            font=("Segoe UI", 9, "bold"),
+            text_color=self.COLOR_TEXT_DIM
+        ).pack(anchor="w", pady=(0, 4))
 
         hf_row = ctk.CTkFrame(hf_inner, fg_color="transparent")
         hf_row.pack(fill="x")
 
-        self.hf_token_var = ctk.StringVar(value=get_hf_token() or "")
         self.entry_hf = ctk.CTkEntry(
             hf_row,
             textvariable=self.hf_token_var,
@@ -1324,7 +1447,21 @@ class BoosterApp(ctk.CTk):
             corner_radius=6,
             command=self._save_hf_token
         )
-        btn_save_hf.pack(side="left")
+        btn_save_hf.pack(side="left", padx=(0, 8))
+
+        btn_clear_hf = ctk.CTkButton(
+            hf_row,
+            text="🗑️ Clear",
+            font=("Segoe UI", 9),
+            fg_color=self.COLOR_CARD_ALT,
+            hover_color=self.COLOR_RED_HOVER,
+            text_color=self.COLOR_TEXT_MUTED,
+            height=34,
+            width=60,
+            corner_radius=6,
+            command=self._clear_hf_token
+        )
+        btn_clear_hf.pack(side="left")
 
         # 3. System Hardware Telemetry Card
         sys_card = ctk.CTkFrame(view, fg_color=self.COLOR_CARD, border_width=1, border_color=self.COLOR_BORDER, corner_radius=10)
@@ -1477,7 +1614,11 @@ class BoosterApp(ctk.CTk):
         self.btn_start.configure(state="normal")
         self.btn_cancel.configure(state="disabled")
         self._log_event(f"❌ Error: {err_msg}")
-        messagebox.showerror("Download Error", err_msg)
+        err_lower = err_msg.lower()
+        if any(keyword in err_lower for keyword in ("401", "unauthorized", "permissionerror", "invalid username or password")):
+            self._show_hf_auth_dialog(err_msg, self.model_input_var.get())
+        else:
+            messagebox.showerror("Download Error", err_msg)
 
     def _quick_pull_model(self, model_name: str):
         self.switch_view("pull")
@@ -1588,9 +1729,25 @@ class BoosterApp(ctk.CTk):
             justify="left"
         ).pack(anchor="w", padx=14, pady=(0, 8))
 
+        btn_row_c3 = ctk.CTkFrame(c3, fg_color="transparent")
+        btn_row_c3.pack(fill="x", padx=14, pady=(0, 10))
+
+        btn_auto = ctk.CTkButton(
+            btn_row_c3,
+            text="🚀 1-Click Connect Token",
+            font=("Segoe UI", 9, "bold"),
+            fg_color=self.COLOR_PURPLE,
+            hover_color="#7c3aed",
+            text_color="#ffffff",
+            height=28,
+            corner_radius=6,
+            command=lambda: (dlg.destroy(), self._start_hf_auto_connect())
+        )
+        btn_auto.pack(side="left", padx=(0, 8))
+
         btn_settings = ctk.CTkButton(
-            c3,
-            text="⚙️ Open Settings to Add HF Token",
+            btn_row_c3,
+            text="⚙️ Open Settings",
             font=("Segoe UI", 9),
             fg_color=self.COLOR_CARD_ALT,
             hover_color=self.COLOR_CARD_HOVER,
@@ -1599,7 +1756,7 @@ class BoosterApp(ctk.CTk):
             corner_radius=6,
             command=lambda: (dlg.destroy(), self.switch_view("settings"))
         )
-        btn_settings.pack(anchor="w", padx=14, pady=(0, 10))
+        btn_settings.pack(side="left")
 
         # Bottom Close Button
         ctk.CTkButton(
@@ -1857,8 +2014,286 @@ class BoosterApp(ctk.CTk):
 
     def _save_hf_token(self):
         tok = self.hf_token_var.get().strip()
+        if tok and not is_valid_hf_token(tok):
+            if not messagebox.askyesno(
+                "Unusual Token Format",
+                f"The token entered does not match standard Hugging Face format (usually 'hf_...' followed by 20+ characters).\n\n"
+                f"Do you want to save it anyway?"
+            ):
+                return
         save_hf_token(tok)
-        messagebox.showinfo("Saved", "Hugging Face Access Token saved successfully!")
+        self._update_hf_token_ui()
+        masked = f"{tok[:4]}••••••••{tok[-4:]}" if tok and len(tok) >= 12 else (tok if tok else "None")
+        self._log_event(f"💾 Hugging Face token saved: {masked}")
+        messagebox.showinfo("Saved", "Hugging Face Access Token saved and synced successfully across system environment, registry, and cache!")
+
+    def _clear_hf_token(self):
+        if messagebox.askyesno("Clear Token", "Are you sure you want to remove your Hugging Face Access Token?"):
+            self.hf_token_var.set("")
+            save_hf_token("")
+            self._update_hf_token_ui()
+            self._log_event("🗑️ Hugging Face token removed.")
+            self._flash_toast("Hugging Face token removed.", color=self.COLOR_CARD_ALT)
+
+    def _check_clipboard_for_token(self, silent_if_same: bool = True, force: bool = False) -> bool:
+        """
+        Safely inspects OS clipboard for Hugging Face tokens (hf_...).
+        If found and different from current token:
+        - Auto-populates input
+        - Saves to environment, disk & registry
+        - Updates UI badges
+        - Displays notification toast
+        """
+        try:
+            content = self.clipboard_get()
+        except Exception:
+            return False
+
+        if not content or not isinstance(content, str):
+            return False
+
+        tok = extract_hf_token(content)
+        if not tok:
+            return False
+
+        curr = (self.hf_token_var.get() or "").strip()
+        if tok == curr and not force:
+            return False
+
+        # Detected new HF token!
+        self.hf_token_var.set(tok)
+        save_hf_token(tok)
+        self._update_hf_token_ui()
+        masked = f"{tok[:4]}••••••••{tok[-4:]}"
+        self._log_event(f"🔑 Hugging Face token auto-detected and applied: {masked}")
+        self._flash_toast(f"🔑 Hugging Face Token Auto-Detected & Applied!\n({masked})")
+        return True
+
+    def _on_window_focus(self, event=None):
+        self._check_clipboard_for_token(silent_if_same=True)
+
+    def _start_hf_auto_connect(self):
+        """
+        1-Click automated token connection:
+        1. Opens Hugging Face token creation page in browser with read permissions pre-filled.
+        2. Starts clipboard polling to instantly capture the token upon user copy.
+        """
+        url = "https://huggingface.co/settings/tokens/new?token_name=OllamaBooster&type=read"
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            messagebox.showwarning("Notice", f"Could not launch browser automatically: {e}\nPlease visit:\n{url}")
+
+        self._log_event("🌐 Hugging Face token page opened in browser. Listening for token copy...")
+        self._token_listen_deadline = time.time() + 90.0
+        self._poll_clipboard_token_step()
+
+    def _poll_clipboard_token_step(self):
+        """Polls clipboard every 350ms until token is copied or timeout occurs."""
+        if not hasattr(self, "_token_listen_deadline"):
+            return
+
+        remaining = int(self._token_listen_deadline - time.time())
+        if remaining <= 0:
+            delattr(self, "_token_listen_deadline")
+            self._update_listen_status("⚪ Auto-listen timed out. Click again or paste manually.", self.COLOR_TEXT_DIM)
+            return
+
+        detected = self._check_clipboard_for_token(force=True)
+        if detected:
+            delattr(self, "_token_listen_deadline")
+            self._update_listen_status("✅ Token detected and connected successfully!", self.COLOR_GREEN)
+            messagebox.showinfo(
+                "Hugging Face Connected! 🎉",
+                "Your Hugging Face Token was automatically captured from clipboard and saved!\n\n"
+                "• Synced to System Environment (HF_TOKEN)\n"
+                "• Saved to Windows Registry (Permanent across reboots)\n"
+                "• Saved to Hugging Face Cache (~/.cache/huggingface/token)\n\n"
+                "You can now download and run gated models seamlessly!"
+            )
+            return
+
+        self._update_listen_status(
+            f"📡 Listening to clipboard... ({remaining}s remaining) — Copy token on Hugging Face!",
+            self.COLOR_CYAN
+        )
+        self.after(350, self._poll_clipboard_token_step)
+
+    def _update_listen_status(self, text: str, color: str):
+        if hasattr(self, "lbl_hf_listen_status") and self.lbl_hf_listen_status.winfo_exists():
+            self.lbl_hf_listen_status.configure(text=text, text_color=color)
+
+    def _update_hf_token_ui(self):
+        """Updates all HF token indicators and badges across views."""
+        tok = (self.hf_token_var.get() or "").strip()
+        has_tok = bool(tok and is_valid_hf_token(tok))
+        masked = f"{tok[:4]}••••••••{tok[-4:]}" if has_tok and len(tok) >= 12 else (tok if has_tok else "")
+
+        # Update Pull Tab Strip
+        if hasattr(self, "lbl_pull_hf_status") and self.lbl_pull_hf_status.winfo_exists():
+            if has_tok:
+                self.lbl_pull_hf_status.configure(
+                    text=f"🟢 HF Token Active ({masked}) • Gated models enabled",
+                    text_color=self.COLOR_GREEN
+                )
+                if hasattr(self, "btn_pull_hf_connect") and self.btn_pull_hf_connect.winfo_exists():
+                    self.btn_pull_hf_connect.configure(text="🔄 Change Token")
+            else:
+                self.lbl_pull_hf_status.configure(
+                    text="⚪ HF Token: None (Gated models require token)",
+                    text_color=self.COLOR_TEXT_MUTED
+                )
+                if hasattr(self, "btn_pull_hf_connect") and self.btn_pull_hf_connect.winfo_exists():
+                    self.btn_pull_hf_connect.configure(text="🚀 1-Click Connect Token")
+
+        # Update Settings Tab Badge
+        if hasattr(self, "lbl_settings_hf_status") and self.lbl_settings_hf_status.winfo_exists():
+            if has_tok:
+                self.lbl_settings_hf_status.configure(
+                    text=f"🟢 Active Token: {masked}  •  Synced to System Environment, Registry & Cache",
+                    text_color=self.COLOR_GREEN
+                )
+            else:
+                self.lbl_settings_hf_status.configure(
+                    text="⚪ No Token Configured — Gated models require an access token",
+                    text_color=self.COLOR_TEXT_MUTED
+                )
+
+    def _flash_toast(self, message: str, color: str = "#10b981", duration_ms: int = 4000):
+        """Displays a sleek floating notification pill at the bottom right of the main window."""
+        try:
+            toast = ctk.CTkLabel(
+                self,
+                text=message,
+                font=("Segoe UI", 10, "bold"),
+                fg_color=color,
+                text_color="#ffffff",
+                corner_radius=8,
+                padx=16,
+                pady=10
+            )
+            toast.place(relx=0.98, rely=0.96, anchor="se")
+            self.after(duration_ms, lambda: toast.destroy() if toast.winfo_exists() else None)
+        except Exception:
+            pass
+
+    def _show_hf_auth_dialog(self, err_msg: str, model_ref: str):
+        """Displays a dedicated, polished troubleshooting modal for Hugging Face authentication."""
+        reg, ns, mdl, tag = RegistryClient.parse_model_ref(model_ref)
+        is_hf = (reg == "hf.co")
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("🔑 Hugging Face Authentication Required")
+        dlg.geometry("640x520")
+        dlg.minsize(580, 460)
+        dlg.configure(fg_color=self.COLOR_BG_DARK)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        # Header
+        hdr = ctk.CTkFrame(dlg, fg_color="transparent")
+        hdr.pack(fill="x", padx=20, pady=(18, 10))
+
+        ctk.CTkLabel(
+            hdr,
+            text="🔑 Hugging Face Authentication Required",
+            font=("Segoe UI", 15, "bold"),
+            text_color=self.COLOR_CYAN
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            hdr,
+            text=f"Model: {model_ref}\nThis model repository is gated or requires a valid Hugging Face Access Token.",
+            font=("Segoe UI", 10),
+            text_color=self.COLOR_TEXT_MUTED,
+            justify="left"
+        ).pack(anchor="w", pady=(2, 0))
+
+        # Card 1: Gated License
+        c1 = ctk.CTkFrame(dlg, fg_color=self.COLOR_CARD, border_width=1, border_color=self.COLOR_BORDER, corner_radius=8)
+        c1.pack(fill="x", padx=20, pady=(0, 10))
+
+        ctk.CTkLabel(c1, text="Step 1: Accept Model License Agreement (if Gated)", font=("Segoe UI", 10, "bold"), text_color=self.COLOR_TEXT_MAIN).pack(anchor="w", padx=14, pady=(10, 2))
+        ctk.CTkLabel(
+            c1,
+            text="Gated models (such as Llama, Gemma, LiquidAI LFM) require you to accept their terms on Hugging Face once before they can be downloaded.",
+            font=("Segoe UI", 9),
+            text_color=self.COLOR_TEXT_MUTED,
+            wraplength=560,
+            justify="left"
+        ).pack(anchor="w", padx=14, pady=(0, 8))
+
+        model_url = f"https://huggingface.co/{ns}/{mdl}" if is_hf else "https://huggingface.co"
+        btn_open_hf = ctk.CTkButton(
+            c1,
+            text=f"🌐 Open Model on Hugging Face ({ns}/{mdl})",
+            font=("Segoe UI", 9, "bold"),
+            fg_color=self.COLOR_CARD_ALT,
+            hover_color=self.COLOR_CARD_HOVER,
+            text_color=self.COLOR_CYAN,
+            height=30,
+            corner_radius=6,
+            command=lambda: webbrowser.open(model_url)
+        )
+        btn_open_hf.pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Card 2: Auto-Connect Token
+        c2 = ctk.CTkFrame(dlg, fg_color=self.COLOR_CARD, border_width=1, border_color=self.COLOR_BORDER, corner_radius=8)
+        c2.pack(fill="x", padx=20, pady=(0, 10))
+
+        ctk.CTkLabel(c2, text="Step 2: Connect Your Hugging Face Token", font=("Segoe UI", 10, "bold"), text_color=self.COLOR_TEXT_MAIN).pack(anchor="w", padx=14, pady=(10, 2))
+        ctk.CTkLabel(
+            c2,
+            text="Click below to open token generator in your browser. Copy the generated token, and this app will auto-detect & save it immediately!",
+            font=("Segoe UI", 9),
+            text_color=self.COLOR_TEXT_MUTED,
+            wraplength=560,
+            justify="left"
+        ).pack(anchor="w", padx=14, pady=(0, 8))
+
+        btn_auto_token = ctk.CTkButton(
+            c2,
+            text="🚀 1-Click Auto-Connect Token (From Clipboard)",
+            font=("Segoe UI", 10, "bold"),
+            fg_color=self.COLOR_PURPLE,
+            hover_color="#7c3aed",
+            text_color="#ffffff",
+            height=34,
+            corner_radius=6,
+            command=lambda: (self._start_hf_auto_connect(), dlg.destroy())
+        )
+        btn_auto_token.pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Card 3: Action Buttons
+        bot_row = ctk.CTkFrame(dlg, fg_color="transparent")
+        bot_row.pack(fill="x", padx=20, pady=(4, 14))
+
+        def retry():
+            dlg.destroy()
+            self._start_download()
+
+        btn_retry = ctk.CTkButton(
+            bot_row,
+            text="⚡ Retry Download Now",
+            font=("Segoe UI", 10, "bold"),
+            fg_color=self.COLOR_GREEN,
+            hover_color=self.COLOR_GREEN_HOVER,
+            text_color="#ffffff",
+            height=34,
+            command=retry
+        )
+        btn_retry.pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            bot_row,
+            text="Close",
+            font=("Segoe UI", 10),
+            fg_color=self.COLOR_CARD,
+            hover_color=self.COLOR_CARD_HOVER,
+            height=34,
+            width=80,
+            command=dlg.destroy
+        ).pack(side="right")
 
     # ---------------- SERVICE POLLER & TELEMETRY ----------------
 
@@ -1880,9 +2315,10 @@ class BoosterApp(ctk.CTk):
     def _start_service_poller(self):
         def loop():
             while True:
-                time.sleep(5)
+                time.sleep(3)
                 try:
                     self.after(0, self._update_service_status)
+                    self.after(0, lambda: self._check_clipboard_for_token(silent_if_same=True))
                 except Exception:
                     break
         threading.Thread(target=loop, daemon=True).start()
