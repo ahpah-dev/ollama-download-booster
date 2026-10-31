@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ollama-download-booster"
+version = "1.0.0"
+authors = [
+    { name = "ahpah-dev" }
+]
+description = "Multi-stream download accelerator for Ollama models with desktop GUI and CLI"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.28.0",
+    "urllib3>=2.0.0"
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Utilities",
+    "License :: OSI Approved :: MIT License"
+]
+
+[project.scripts]
+ollama-booster = "ollama_booster.cli:cli_main"
