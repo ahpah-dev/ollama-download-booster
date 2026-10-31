@@ -5,6 +5,8 @@ Client for interacting with Ollama OCI Model Registry (registry.ollama.ai).
 Fetches manifests, inspects layers, and resolves direct CDN/R2 storage URLs.
 """
 
+import os
+import json
 import time
 import requests
 from requests.adapters import HTTPAdapter
@@ -79,6 +81,32 @@ class RegistryClient:
 
         return registry, namespace, model, tag
 
+    @staticmethod
+    def get_hf_token() -> Optional[str]:
+        """Find Hugging Face token from environment, cache, or booster config."""
+        token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
+        if token:
+            return token.strip()
+        cache_path = os.path.expanduser("~/.cache/huggingface/token")
+        if os.path.isfile(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    t = f.read().strip()
+                    if t:
+                        return t
+            except Exception:
+                pass
+        config_path = os.path.expanduser("~/.ollama/booster_config.json")
+        if os.path.isfile(config_path):
+            try:
+                import json
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    return cfg.get("hf_token", "").strip() or None
+            except Exception:
+                pass
+        return None
+
     def fetch_manifest(self, model_ref: str) -> Tuple[Dict[str, Any], Tuple[str, str, str, str]]:
         """
         Fetches the JSON manifest for a given model.
@@ -87,18 +115,43 @@ class RegistryClient:
         reg, ns, model, tag = self.parse_model_ref(model_ref)
         url = f"https://{reg}/v2/{ns}/{model}/manifests/{tag}"
 
+        headers = {}
+        hf_token = self.get_hf_token()
+        if reg == "hf.co" and hf_token:
+            headers["Authorization"] = f"Bearer {hf_token}"
+
         last_error = None
         for attempt in range(3):
             try:
-                response = self.session.get(url, timeout=15)
+                response = self.session.get(url, headers=headers, timeout=15)
                 if response.status_code == 200:
                     return response.json(), (reg, ns, model, tag)
+                elif response.status_code in (401, 403):
+                    if reg == "hf.co":
+                        raise PermissionError(
+                            f"Access unauthorized for Hugging Face model '{model_ref}' (HTTP {response.status_code}).\n"
+                            f"• If this model is gated (like LiquidAI/LFM, Meta-Llama), accept the license agreement at:\n"
+                            f"  https://huggingface.co/{ns}/{model}\n"
+                            f"• Then configure your Hugging Face Access Token in the app settings or via export HF_TOKEN=hf_..."
+                        )
+                    else:
+                        raise PermissionError(
+                            f"Access unauthorized for model '{model_ref}' on {reg} (HTTP {response.status_code}).\n"
+                            f"This model may be private or restricted."
+                        )
                 elif response.status_code == 404:
                     raise ValueError(f"Model '{model_ref}' not found on {reg} (HTTP 404). Check the model name and tag.")
+                elif response.status_code == 412:
+                    raise RuntimeError(
+                        f"Model '{model_ref}' requires a newer version of Ollama. "
+                        f"Please update Ollama at https://ollama.com/download"
+                    )
                 else:
                     response.raise_for_status()
-            except (requests.RequestException, ValueError) as e:
+            except (requests.RequestException, ValueError, PermissionError, RuntimeError) as e:
                 last_error = e
+                if isinstance(e, (PermissionError, ValueError, RuntimeError)):
+                    raise
                 time.sleep(1.0 * (attempt + 1))
 
         raise RuntimeError(f"Failed to fetch manifest for '{model_ref}': {last_error}")
@@ -109,8 +162,12 @@ class RegistryClient:
         Supports registry.ollama.ai, hf.co (Hugging Face), and custom OCI registries.
         """
         url = f"https://{registry}/v2/{namespace}/{model}/blobs/{digest}"
+        headers = {}
+        hf_token = self.get_hf_token()
+        if registry == "hf.co" and hf_token:
+            headers["Authorization"] = f"Bearer {hf_token}"
         try:
-            resp = self.session.get(url, allow_redirects=True, stream=True, timeout=15)
+            resp = self.session.get(url, headers=headers, allow_redirects=True, stream=True, timeout=15)
             if resp.status_code in (200, 206):
                 return resp.url
         except Exception:

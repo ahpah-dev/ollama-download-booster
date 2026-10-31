@@ -770,6 +770,52 @@ class BoosterApp(tk.Tk):
         tk.Label(p_card, text="LOCAL OLLAMA MODELS DIRECTORY", font=("Segoe UI", 9, "bold"), fg=self.COLOR_MUTED, bg=self.COLOR_CARD).pack(anchor="w", padx=15, pady=(12, 4))
         tk.Label(p_card, text=self.manager.models_dir, font=("Consolas", 10), fg=self.COLOR_CYAN, bg=self.COLOR_CARD).pack(anchor="w", padx=15, pady=(0, 12))
 
+        # Hugging Face Access Token Card
+        hf_card = tk.Frame(container, bg=self.COLOR_CARD, highlightbackground=self.COLOR_BORDER, highlightthickness=1)
+        hf_card.pack(fill=tk.X, pady=(0, 15))
+
+        tk.Label(hf_card, text="HUGGING FACE ACCESS TOKEN (FOR GATED MODELS)", font=("Segoe UI", 9, "bold"), fg=self.COLOR_MUTED, bg=self.COLOR_CARD).pack(anchor="w", padx=15, pady=(12, 4))
+        tk.Label(
+            hf_card,
+            text="Required for gated Hugging Face models (e.g. LiquidAI/LFM, Meta-Llama). Get your free token at huggingface.co/settings/tokens",
+            font=("Segoe UI", 8),
+            fg=self.COLOR_TEXT,
+            bg=self.COLOR_CARD
+        ).pack(anchor="w", padx=15, pady=(0, 8))
+
+        hf_row = tk.Frame(hf_card, bg=self.COLOR_CARD)
+        hf_row.pack(fill=tk.X, padx=15, pady=(0, 12))
+
+        existing_token = RegistryClient.get_hf_token() or ""
+        self.hf_token_var = tk.StringVar(value=existing_token)
+
+        self.hf_entry = tk.Entry(
+            hf_row,
+            textvariable=self.hf_token_var,
+            font=("Consolas", 10),
+            bg="#0d1117",
+            fg=self.COLOR_TEXT,
+            insertbackground=self.COLOR_CYAN,
+            relief=tk.FLAT,
+            bd=4,
+            show="*" if existing_token else ""
+        )
+        self.hf_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+
+        btn_save_token = tk.Button(
+            hf_row,
+            text="Save Token",
+            font=("Segoe UI", 9, "bold"),
+            bg=self.COLOR_CARD,
+            fg=self.COLOR_CYAN,
+            relief=tk.FLAT,
+            padx=12,
+            pady=3,
+            cursor="hand2",
+            command=self._save_hf_token
+        )
+        btn_save_token.pack(side=tk.LEFT)
+
         # Local Proxy Card
         proxy_card = tk.Frame(container, bg=self.COLOR_CARD, highlightbackground=self.COLOR_BORDER, highlightthickness=1)
         proxy_card.pack(fill=tk.X, pady=(0, 15))
@@ -796,6 +842,28 @@ class BoosterApp(tk.Tk):
             command=self._toggle_proxy
         )
         self.btn_toggle_proxy.pack(side=tk.LEFT)
+
+    def _save_hf_token(self):
+        token = self.hf_token_var.get().strip()
+        config_path = os.path.expanduser("~/.ollama/booster_config.json")
+        try:
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            cfg = {}
+            if os.path.isfile(config_path):
+                import json
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                except Exception:
+                    pass
+            cfg["hf_token"] = token
+            import json
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+            self.hf_entry.config(show="*" if token else "")
+            messagebox.showinfo("Token Saved", "Hugging Face Access Token saved successfully!\nGated model pulls will now use this token.")
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Failed to save token: {e}")
 
     def _toggle_proxy(self):
         if not self.proxy_server.is_running:
