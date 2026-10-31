@@ -107,6 +107,38 @@ class RegistryClient:
                 pass
         return None
 
+    @staticmethod
+    def save_hf_token(token: str) -> None:
+        """Saves Hugging Face token to ~/.ollama/booster_config.json and session env."""
+        config_dir = os.path.expanduser("~/.ollama")
+        os.makedirs(config_dir, exist_ok=True)
+        config_path = os.path.join(config_dir, "booster_config.json")
+        cfg = {}
+        if os.path.isfile(config_path):
+            try:
+                import json
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception:
+                cfg = {}
+        cfg["hf_token"] = token.strip()
+        try:
+            import json
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=2)
+        except Exception:
+            pass
+        if token.strip():
+            os.environ["HF_TOKEN"] = token.strip()
+
+
+def get_hf_token() -> Optional[str]:
+    return RegistryClient.get_hf_token()
+
+
+def save_hf_token(token: str) -> None:
+    RegistryClient.save_hf_token(token)
+
     def fetch_manifest(self, model_ref: str) -> Tuple[Dict[str, Any], Tuple[str, str, str, str]]:
         """
         Fetches the JSON manifest for a given model.

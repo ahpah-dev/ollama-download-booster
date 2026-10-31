@@ -19,6 +19,8 @@ setup(
     install_requires=[
         "requests>=2.28.0",
         "urllib3>=2.0.0",
+        "customtkinter>=5.2.0",
+        "darkdetect>=0.8.0",
     ],
     entry_points={
         "console_scripts": [

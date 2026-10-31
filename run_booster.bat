@@ -9,6 +9,12 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+python -c "import customtkinter" >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [INFO] Installing required dependencies...
+    python -m pip install -r requirements.txt
+)
+
 python main.py %*
 if %errorlevel% neq 0 (
     pause
